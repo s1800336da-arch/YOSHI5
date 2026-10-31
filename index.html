@@ -1,0 +1,1425 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#0b1210">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="害獣センサー">
+<link rel="apple-touch-icon" href="icon-192.png">
+<title>害獣センサー</title>
+<style>
+  :root { --bg:#0b1210; --panel:#121c18; --line:#223229; --fg:#e8f1ec; --muted:#8fa69b; --accent:#ff5a4d; --ok:#4fd18b; --admin:#f0b429; }
+  * { box-sizing:border-box; }
+  [hidden] { display:none !important; }   /* display:flex 等に負けて隠れない問題の対策 */
+  html,body { margin:0; background:var(--bg); color:var(--fg);
+    font-family:"Hiragino Sans","Noto Sans JP","Yu Gothic",sans-serif; }
+  body { min-height:100vh; border-top:6px solid #3d5230; }
+  body[data-mode="admin"] { border-top-color:var(--admin); }
+
+  #app { display:grid; grid-template-columns:1fr; gap:16px; padding:14px 16px 20px; }
+  body[data-mode="admin"] #app { grid-template-columns:minmax(0,1.4fr) minmax(320px,1fr); }
+  @media (max-width:860px){ body[data-mode="admin"] #app { grid-template-columns:1fr; } }
+  body[data-mode="public"] aside { display:none; }
+
+  .top { display:flex; align-items:center; gap:12px; margin-bottom:10px; flex-wrap:wrap; }
+  .top h1 { font-size:20px; margin:0; }
+  .tag { font-size:13px; font-weight:700; padding:4px 10px; border-radius:99px; background:#2d3f22; color:#cfe8c0; }
+  body[data-mode="admin"] .tag { background:var(--admin); color:#1a1200; }
+  .top .spacer { flex:1; }
+
+  #view { position:relative; background:#000; border-radius:12px; overflow:hidden; }
+  body[data-mode="public"] #view { height:calc(100dvh - 150px); min-height:260px; }
+  body[data-mode="admin"] #view { aspect-ratio:16/9; }
+  video { width:100%; height:100%; object-fit:contain; display:block; background:#000; }
+  #live { position:absolute; left:12px; top:12px; padding:3px 10px; border-radius:99px; font-size:13px; font-weight:700;
+    background:rgba(0,0,0,.55); color:#fff; }
+  #live::before { content:"● "; color:#ff4a3d; }
+  #startBox { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center;
+    justify-content:center; gap:10px; background:#0c0f0a; text-align:center; padding:16px; }
+  #startBox p { margin:0; color:var(--muted); font-size:14px; line-height:1.6; }
+  #seen { margin-top:10px; padding:10px 14px; background:var(--panel); border-radius:10px; font-size:15px; color:var(--muted); min-height:44px; }
+  #seen b { color:var(--fg); }
+  #seen.alerting { background:#4a1512; color:#fff; font-weight:700; }
+
+  /* 画面全体の赤い半透明 */
+  #alert { position:fixed; inset:0; background:rgba(255,40,40,var(--aop,.42)); opacity:0; pointer-events:none;
+    transition:opacity .25s; z-index:10; }
+  #alert.on { opacity:1; animation:pulse 1s ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity:.65; } }
+  @media (prefers-reduced-motion:reduce){ #alert.on { animation:none; } }
+  #msg { position:fixed; left:0; right:0; top:42%; text-align:center; z-index:11; pointer-events:none;
+    font-size:clamp(32px,9vw,96px); font-weight:800; color:#fff; text-shadow:0 2px 14px rgba(0,0,0,.55);
+    opacity:0; transition:opacity .25s; }
+  #msg.on { opacity:1; }
+
+  .box { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:14px; margin-bottom:12px; }
+  .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  .muted { color:var(--muted); font-size:13px; }
+  button { font:inherit; font-size:14px; font-weight:700; padding:9px 14px; border:0; border-radius:8px;
+    background:var(--accent); color:#fff; cursor:pointer; }
+  button.sub { background:#2d3827; color:var(--fg); font-weight:500; }
+  button.ghost { background:transparent; color:var(--muted); font-weight:500; border:1px solid var(--line); }
+  button:disabled { opacity:.5; cursor:default; }
+  button:focus-visible, input:focus-visible, select:focus-visible { outline:3px solid #fff; outline-offset:2px; }
+  input[type=range] { accent-color:var(--accent); width:150px; }
+  input[type=text], input[type=password] { width:100%; font:inherit; font-size:14px; padding:8px 10px; border-radius:8px;
+    border:1px solid var(--line); background:#0f130c; color:var(--fg); }
+  input[type=checkbox] { width:18px; height:18px; accent-color:var(--accent); }
+  select { font:inherit; font-size:14px; padding:8px 10px; border-radius:8px; border:1px solid var(--line);
+    background:#0f130c; color:var(--fg); max-width:100%; }
+  .dot { width:10px; height:10px; border-radius:50%; background:#666; display:inline-block; }
+  .dot.on { background:var(--ok); }
+  .card .head { display:flex; align-items:center; gap:10px; margin-bottom:8px; }
+  .card .head label { display:flex; gap:8px; align-items:center; font-weight:700; font-size:16px; flex:1; }
+  .err { color:#ff8a80; font-size:12px; min-height:16px; display:block; margin:4px 0; }
+  .hit { outline:2px solid var(--accent); }
+  details { font-size:13px; color:var(--muted); line-height:1.7; }
+  summary { cursor:pointer; color:var(--fg); }
+  code { background:#0f130c; padding:1px 5px; border-radius:4px; }
+  .warn { color:#ffcf6b; font-size:13px; margin:6px 0 0; }
+
+  dialog { background:var(--panel); color:var(--fg); border:1px solid var(--line); border-radius:14px; padding:20px; width:min(92vw,360px); }
+  dialog::backdrop { background:rgba(0,0,0,.65); }
+  dialog h2 { margin:0 0 12px; font-size:18px; }
+
+  @media (pointer:coarse) {
+    button, select, input[type=text], input[type=password] { min-height:46px; }
+    input[type=checkbox] { width:24px; height:24px; }
+    input[type=range] { width:200px; }
+  }
+  input[type=time], input[type=date] { font:inherit; font-size:14px; padding:7px 8px; border-radius:8px; border:1px solid var(--line); background:#0f130c; color:var(--fg); }
+  #pubLog { margin-top:10px; font-size:14px; }
+  .li { display:flex; gap:10px; align-items:center; padding:6px 0; border-top:1px solid var(--line); font-size:13px; }
+  .li img { width:64px; height:36px; object-fit:cover; border-radius:4px; margin-left:auto; }
+  #logList { max-height:300px; overflow:auto; margin:8px 0; }
+  #hourChart { display:flex; gap:2px; align-items:flex-end; height:68px; margin:8px 0; }
+  #hourChart div { flex:1; display:flex; flex-direction:column; justify-content:flex-end; align-items:center; font-size:10px; color:var(--muted); }
+  #hourChart i { display:block; width:100%; background:var(--accent); border-radius:2px 2px 0 0; min-height:1px; }
+  label.row { margin:4px 0; }
+  body { background:radial-gradient(1100px 500px at 10% -10%,#16342a 0%,transparent 60%),var(--bg); border-top:0; }
+  #top { display:flex; align-items:center; gap:12px; padding:12px 18px; margin:0; position:sticky; top:0; z-index:5; flex-wrap:wrap;
+    background:rgba(11,18,16,.88); backdrop-filter:blur(8px); border-bottom:1px solid var(--line); }
+  .logo { font-size:22px; }
+  #tabs { display:none; gap:6px; padding:10px 18px 0; overflow-x:auto; }
+  body[data-mode=admin] #tabs { display:flex; }
+  #tabs button { background:transparent; color:var(--muted); border-radius:99px; padding:8px 16px; font-weight:600; white-space:nowrap; }
+  #tabs button[aria-selected=true] { background:var(--accent); color:#fff; }
+  body[data-mode=admin] #app { display:block; max-width:1100px; margin:0 auto; }
+  body[data-mode=admin][data-tab=dash] aside { display:none; }
+  body[data-mode=admin]:not([data-tab=dash]) main { position:fixed; left:-10000px; top:0; width:640px; }
+  body[data-mode=public] #view { height:calc(100dvh - 270px); min-height:240px; }
+  body[data-mode=public] .adm { display:none; }
+  #adminPanel > [data-p] { display:none; }
+  #adminPanel[data-tab=animals] > [data-p=animals], #adminPanel[data-tab=log] > [data-p=log], #adminPanel[data-tab=set] > [data-p=set] { display:block; }
+  .box { border-radius:16px; box-shadow:0 6px 20px rgba(0,0,0,.25); }
+  button.sub { background:#1d2c25; } input[type=text], input[type=password], input[type=number], select, input[type=time], input[type=date] { background:#0b1210; }
+  input[type=number] { font:inherit; font-size:14px; padding:7px 8px; border-radius:8px; border:1px solid var(--line); color:var(--fg); }
+  #stats5 { display:grid; grid-template-columns:repeat(auto-fit,minmax(130px,1fr)); gap:10px; margin-top:12px; }
+  .stat { background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:12px; }
+  .stat small { color:var(--muted); display:block; font-size:12px; } .stat b { font-size:18px; }
+  .stat.danger { background:#4a1512; border-color:var(--accent); }
+  #dash { margin-top:12px; }
+  #gallery { display:grid; grid-template-columns:repeat(auto-fill,minmax(120px,1fr)); gap:8px; }
+  #gallery a { color:var(--fg); font-size:12px; text-decoration:none; } #gallery img { width:100%; aspect-ratio:16/9; object-fit:cover; border-radius:8px; display:block; }
+  .chart { display:flex; gap:2px; align-items:flex-end; height:84px; margin:6px 0; }
+  .chart div { flex:1; display:flex; flex-direction:column; justify-content:flex-end; align-items:center; font-size:10px; color:var(--muted); }
+  .chart i { display:block; width:100%; background:var(--accent); border-radius:3px 3px 0 0; min-height:1px; } .chart em { font-style:normal; font-size:10px; }
+  .chip { padding:3px 10px; border-radius:99px; background:#1d2c25; color:var(--fg); font-weight:500; font-size:13px; margin:0 2px; }
+  #gate { position:fixed; inset:0; z-index:50; display:flex; align-items:center; justify-content:center; padding:16px;
+    background:radial-gradient(900px 500px at 50% -10%,#16342a 0%,transparent 60%),var(--bg); }
+  .gbox { width:min(92vw,380px); background:var(--panel); border:1px solid var(--line); border-radius:20px; padding:26px 22px; text-align:center;
+    box-shadow:0 10px 40px rgba(0,0,0,.4); display:flex; flex-direction:column; gap:12px; }
+  .gbox h1 { margin:0; font-size:22px; } .gbox .logo { font-size:44px; } .gbox p { margin:0; }
+  #gId { text-align:center; font-size:22px; letter-spacing:.15em; text-transform:uppercase; padding:12px; }
+  .gbox label { justify-content:center; font-size:13px; color:var(--muted); }
+  .li { flex-wrap:wrap; }
+  #adminPanel[data-tab=users] > [data-p=users] { display:block; }
+  #startBox .vmsg { display:none; }
+  body[data-role=user] #startCam { display:none; }
+  body[data-role=user] #startBox .vmsg { display:block; }
+  body[data-role=user] #adminOpen { display:none; }
+  .role { font-size:11px; padding:2px 8px; border-radius:99px; background:#2a3b33; font-style:normal; }
+  .role.a { background:var(--admin); color:#1a1200; }
+  #viewer { display:none; }
+  body.viewing > :not(#viewer):not(script) { display:none !important; }
+  body.viewing > #viewer { display:block !important; }
+  .vtop { display:flex; align-items:center; gap:10px; padding:12px 16px; border-bottom:1px solid var(--line); font-weight:700; }
+  .vbox { position:relative; background:#000; height:calc(100dvh - 58px); }
+  .vbox video { width:100%; height:100%; object-fit:contain; display:block; }
+  #rvAlert { position:absolute; inset:0; background:rgba(255,40,40,.42); opacity:0; pointer-events:none; transition:opacity .25s; }
+  #rvAlert.on { opacity:1; animation:pulse 1s ease-in-out infinite; }
+  #rvMsg { position:absolute; left:0; right:0; top:42%; text-align:center; font-size:clamp(28px,8vw,80px); font-weight:800; color:#fff; text-shadow:0 2px 14px rgba(0,0,0,.6); pointer-events:none; }
+  body[data-remote] #dash, body[data-remote] #pubLog { display:none; }
+</style>
+</head>
+<body data-mode="public">
+<div id="alert"></div>
+<div id="msg"></div>
+<div id="viewer">
+  <div class="vtop"><span class="logo">🐻</span> 害獣センサー ライブ <span id="rvStatus" class="role"></span></div>
+  <div class="vbox"><video id="rv" playsinline muted autoplay></video><div id="rvAlert"></div><div id="rvMsg"></div></div>
+</div>
+<div id="gate">
+  <div class="gbox">
+    <div class="logo">🐻</div><h1>害獣センサー</h1>
+    <p class="muted">配られたIDを入力してください</p>
+    <input id="gId" type="text" placeholder="ID" autocomplete="off" autocapitalize="characters" spellcheck="false">
+    <input id="gPw" type="password" placeholder="パスワード(6文字以上)" autocomplete="current-password" hidden>
+    <label class="row"><input id="gKeep" type="checkbox"> この端末では次回から入力しない</label>
+    <span class="err" id="gErr"></span>
+    <button id="gGo">入る</button>
+    <button id="gReg" class="sub" hidden>新規登録(IDを発行)</button>
+    <button id="gSetup" class="ghost">⚙ GASのURLを設定</button>
+    <button id="gAdmin" class="ghost">管理者はこちら</button>
+  </div>
+</div>
+
+<div id="app">
+  <main>
+    <div class="top" id="top">
+      <h1><span class="logo">🐻</span> 害獣センサー</h1>
+      <span class="tag" id="modeTag">一般公開画面</span>
+      <span id="who" class="muted"></span><span class="spacer"></span><button id="gOut" class="ghost" hidden>ログアウト</button>
+      <button id="fs" class="ghost">全画面</button>
+      <button id="adminOpen" class="ghost">管理者ログイン</button>
+      <button id="adminExit" class="sub" hidden>公開画面にもどる</button>
+    </div>
+
+    <nav id="tabs"><button data-t="dash" aria-selected="true">ダッシュボード</button><button data-t="animals">動物と音</button><button data-t="log">記録</button><button data-t="users">利用者</button><button data-t="set">設定</button></nav>
+    <div id="view">
+      <video id="video" playsinline muted autoplay></video>
+      <video id="rv2" playsinline muted autoplay hidden></video>
+      <span id="live" hidden>LIVE</span>
+      <div id="startBox">
+        <button id="startCam">カメラを開始</button>
+        <p>映像は端末の外には送られません。<br>初回はAIモデルの読み込みにネット接続が必要です。</p>
+        <p id="camErr" style="color:#ff8a80"></p>
+        <p class="vmsg">カメラの開始は「管理人」のIDだけができます。管理人が開始するまでお待ちください。</p>
+      </div>
+    </div>
+    <div id="seen">カメラを開始してください。</div>
+    <div id="pubLog" class="box" hidden></div>
+    <div id="dash">
+      <div id="stats5">
+        <div class="stat"><small>検知状況</small><b id="sDet">待機中</b></div>
+        <div class="stat"><small>ライト</small><b id="sLight">—</b></div>
+        <div class="stat"><small>サーボ</small><b id="sServo">—</b></div>
+        <div class="stat"><small>micro:bit</small><b id="sBle">未接続</b></div>
+        <div class="stat"><small>PIR</small><b id="sPir">未使用</b></div>
+        <div class="stat"><small>今日の検知</small><b id="sCnt">0回</b></div>
+      </div>
+      <div class="box adm" style="margin-top:12px"><b>ライト・サーボ操作</b>
+        <div class="row" style="margin-top:8px"><button id="lOn">ライト点灯</button><button id="lBl" class="sub">点滅</button><button id="lOff" class="sub">消灯</button>
+          <label>サーボ <input id="svRange" type="range" min="0" max="180" value="90"> <b id="svv">90°</b></label></div></div>
+      <div class="box"><b>最新の撮影画像</b><div id="gallery" style="margin-top:8px"></div></div>
+      <div class="box"><b>検知履歴グラフ</b><p class="muted" style="margin:6px 0 0">時間帯別</p><div id="dashChart" class="chart"></div>
+        <p class="muted" style="margin:6px 0 0">直近7日</p><div id="dayChart" class="chart"></div></div>
+    </div>
+  </main>
+
+  <!-- ===== ここから管理画面(公開画面では表示されない) ===== -->
+  <aside id="adminPanel">
+    <div class="box">
+      <div class="row">
+        <label>カメラ <select id="camSel"><option>(開始すると選べます)</option></select></label>
+        <button id="flip" class="sub">前/背面の切替</button>
+      </div>
+    </div>
+
+    <div class="box">
+      <div class="row">
+        <span class="dot" id="bleDot"></span>
+        <span id="bleText">micro:bit 未接続</span>
+        <button id="bleBtn" class="sub" style="margin-left:auto">micro:bitに接続</button>
+      </div>
+      <p class="muted" style="margin:8px 0 0">Chrome(PC/Android)で使えます。iPhone/iPadは「Bluefy」などが必要です。</p>
+    </div>
+
+    <div class="box">
+      <div class="row" style="margin-bottom:8px">
+        <label>反応のしきい値 <input id="th" type="range" min="10" max="90"> <b id="thv"></b></label>
+      </div>
+      <div class="row" style="margin-bottom:8px">
+        <label>同じ動物の再送信まで <input id="cd" type="range" min="2" max="30"> <b id="cdv"></b></label>
+      </div>
+      <label class="row"><input id="local" type="checkbox"> この端末でも音を鳴らす</label>
+    </div>
+
+    <div id="cards"></div>
+    <div id="addBox" class="box"><b>動物を追加</b>
+      <input id="nName" type="text" placeholder="名前(例: タヌキ)" style="margin-top:8px">
+      <input id="nNames" type="text" list="cls" placeholder="AIが使う英語名(例: red fox, badger)" style="margin-top:6px">
+      <datalist id="cls"></datalist><span class="err" id="nErr"></span>
+      <p class="muted">ダッシュボードの「AIが見ているもの」の名前を押すと、ここに入ります。シカなど、AIが学習していない動物は追加しても反応しません。</p>
+      <button id="nAdd">追加</button></div>
+    <div id="soundBox" class="box"><b>音ライブラリ</b><div id="soundList" style="margin:8px 0"></div>
+      <input id="sName" type="text" placeholder="音の名前"><input id="sMel" type="text" placeholder="C5:200 E5:200 R:100 G5:400" style="margin-top:6px" spellcheck="false"><span class="err" id="sErr"></span>
+      <div class="row"><button id="sTry" class="sub">試し聞き</button><button id="sAdd">追加</button></div></div>
+    <div id="userBox" class="box"><b>IDの発行</b>
+      <div class="row" style="margin:8px 0"><input id="uName" type="text" placeholder="名前・メモ(例: 田中さん)" style="flex:1 1 180px"><input id="uId" type="text" placeholder="ID(空なら自動)" style="flex:1 1 120px" autocapitalize="characters"><select id="uRole" aria-label="権限"><option value="user">一般人</option><option value="admin">管理人</option></select><button id="uAdd">発行</button></div>
+      <span class="err" id="uErr"></span>
+      <div id="uList" style="margin-bottom:14px"></div>
+      <b>オンライン中の利用者</b><div id="onList" class="muted" style="margin:6px 0 14px">(Firebase未設定)</div>
+      <b>アクセス記録(だれがいつ入ったか)</b>
+      <div class="row" style="margin:6px 0"><button id="aRef" class="sub">更新</button><button id="aCsv" class="sub">CSV</button><button id="aClr" class="sub">記録を消す</button></div>
+      <div id="aList" style="max-height:320px;overflow:auto"></div>
+      <details style="margin-top:12px"><summary>複数の端末で使う(クラウド保存)</summary>
+        <p>空欄のときは、IDと記録はこの端末のブラウザの中だけに保存されます。別の端末からも使うには、Firebase Realtime Databaseを作り、そのURL(https://〜.firebaseio.com)を入れてください。ルールで読み書きを許可する必要があるため、学校内など限られた場面で使ってください。</p>
+        <p>Googleスプレッドシート+GASでログイン・オンライン一覧を使う場合: デプロイしたウェブアプリのURL(…/exec)を貼って保存します。空で保存すると従来方式に戻ります。</p><input id="fbCfg" type="text" placeholder="https://script.google.com/macros/s/…/exec" spellcheck="false"><button id="fbSave" class="sub" style="margin:6px 0 12px">GASのURLを保存</button><span class="err" id="fbErr"></span><br>
+        <input id="dbUrl" type="text" placeholder="https://xxxx-default-rtdb.firebaseio.com" spellcheck="false"><button id="dbSave" class="sub" style="margin-top:6px">保存</button>
+      </details></div>
+    <div id="liveBox" class="box"><b>ライブ配信(IDで入った人だけ映像を見られる)</b>
+      <button id="liveBtn" style="width:100%;margin-top:8px;padding:14px;font-size:1.1em">▶ ライブ配信を開始</button>
+      <p id="liveHint" class="muted" style="margin:6px 0 0"></p>
+      <label class="row" style="margin-top:8px"><input id="liveOn" type="checkbox"> この端末の映像を配信する</label>
+      <div class="row" style="margin:8px 0"><span class="muted">状態: <b id="liveState">停止中</b> / 見ている人: <b id="liveCount">0</b>人 <span id="liveWho"></span></span></div>
+      <input id="liveLink" type="text" readonly><button id="liveCopy" class="sub" style="margin-top:6px">リンクをコピー</button>
+      <p id="liveWarn" class="warn" hidden>⚠ このページはファイルとして直接開かれています。見る人はこのファイルを開けないので、GitHub Pagesなどに置いたアプリを開いてもらい、下の「配信キー」を配信端末と同じにしてください。</p>
+        <div class="row" style="margin:6px 0"><input id="liveKey" type="text" placeholder="配信キー(8〜40字の英数字。ファイルから配信するときだけ)" spellcheck="false" style="flex:1"><button id="liveKeySave" class="sub">保存</button></div>
+      <p class="muted">配信をオンにすると、上のアドレス(このアプリ)を別の端末で開き、ここで発行したIDで入った人だけに、一般公開画面でライブ映像が出ます。IDのない人には送られません。IDの確認と入室の記録は、この端末が行います(IDはこの端末の「利用者」タブで発行してください)。この端末のカメラとブラウザが動いている間だけ配信されます。人や家が映らない向きにしてください。</p></div>
+    <div id="pirBox" class="box"><b>PIRセンサー連動</b>
+      <label class="row" style="margin-top:8px"><input id="pirOn" type="checkbox"> PIRが反応したときだけカメラとAIを動かす(電池の節約)</label>
+      <div class="row" style="margin:8px 0"><label>反応のあと動かす時間 <input id="pirSec" type="number" min="5" max="600" style="width:80px"> 秒</label></div>
+      <label class="row"><input id="pirStop" type="checkbox"> 待機中はカメラも止める(もっと節電)</label>
+      <div class="row" style="margin-top:8px"><button id="pirTest" class="sub">PIR反応のテスト</button></div>
+      <p class="muted">PIRセンサーはmicro:bitのP8につなぎます。micro:bitのプログラムは新しい版に入れ替えてください。</p></div>
+    <div id="pwaBox" class="box"><b>アプリとして使う(ホーム画面に追加)</b>
+      <p class="muted" id="pwaHint">AndroidやPCのChromeは下のボタン、iPadは共有ボタン →「ホーム画面に追加」を押します。ホーム画面から開くと、アドレスバーのない全画面になります(httpsで開いたときだけ使えます)。</p>
+      <button id="pwaBtn" hidden>ホーム画面に追加</button></div>
+    <div id="devBox" class="box"><b>ライト・サーボ</b>
+      <div class="row" style="margin-top:8px"><label>検知後に元へ戻すまで <input id="lightSec" type="number" min="1" max="600" style="width:80px"> 秒</label></div>
+      <div class="row" style="margin-top:8px"><label>戻すときのサーボ角度 <input id="servoHome" type="number" min="-1" max="180" style="width:80px"></label><span class="muted">(-1=戻さない)</span></div>
+      <p class="muted">ライトはmicro:bitのP1、サーボはP2につなぎます。</p></div>
+
+    <div class="box">
+      <b>検知の設定</b>
+      <div class="row" style="margin:8px 0"><label>検知する範囲 <select id="rng"><option value="all">画面全体</option><option value="zoom">中央を拡大</option><option value="left">左半分</option><option value="right">右半分</option></select></label></div>
+      <div class="row" style="margin-bottom:8px"><label>見る間隔 <input id="iv" type="range" min="100" max="2000" step="100"> <b id="ivv"></b></label></div>
+      <div class="row" style="margin-bottom:8px"><label>連続で見えたら反応 <input id="conf" type="range" min="1" max="5"> <b id="confv"></b></label></div>
+      <div class="row" style="margin-bottom:8px"><label>明るさ補正 <input id="bright" type="range" min="50" max="200" step="5"> <b id="brightv"></b></label></div>
+      <div class="row" style="margin-bottom:8px"><label>音量 <input id="vol" type="range" min="0" max="100" step="5"> <b id="volv"></b></label></div>
+      <div class="row" style="margin-bottom:8px"><label>赤い画面の濃さ <input id="aop" type="range" min="10" max="80" step="2"> <b id="aopv"></b></label></div>
+      <div class="row"><label><input id="schOn" type="checkbox"> 監視する時間帯</label><input id="schFrom" type="time"> 〜 <input id="schTo" type="time"></div>
+    </div>
+
+    <div class="box">
+      <b>便利機能</b>
+      <label class="row"><input id="wake" type="checkbox"> 画面を消さない(スリープ防止)</label>
+      <label class="row"><input id="voice" type="checkbox"> 検知したら声で知らせる</label>
+      <label class="row"><input id="notif" type="checkbox"> ブラウザ通知を出す</label>
+      <label class="row"><input id="pubLogOn" type="checkbox"> 公開画面に記録を表示する</label>
+      <div class="row" style="margin-top:8px"><select id="testAnimal"></select><button id="testDet" class="sub">テスト検知</button></div>
+    </div>
+
+    <div class="box">
+      <b>検知の記録</b>
+      <div class="row" style="margin:8px 0"><select id="fAnimal"></select><input id="fDate" type="date"><button id="fClr" class="sub">全期間</button></div>
+      <div id="stats" class="muted"></div>
+      <div id="hourChart" title="時間帯別の回数"></div>
+      <div id="logList"></div>
+      <div class="row"><button id="csv" class="sub">CSVで保存</button><button id="logClr" class="sub">記録を全部消す</button></div>
+    </div>
+
+    <div class="box">
+      <b>設定のバックアップ</b>
+      <div class="row" style="margin-top:8px"><button id="bkOut" class="sub">書き出す</button><button id="bkIn" class="sub">読み込む</button><input id="bkFile" type="file" accept=".json" hidden></div>
+    </div>
+
+    <div class="box">
+      <div class="row" style="margin-bottom:8px"><b>管理者パスワード</b></div>
+      <input id="newPw" type="password" placeholder="新しいパスワード(6文字以上)" autocomplete="new-password">
+      <span class="err" id="pwMsg"></span>
+      <div class="row">
+        <button id="pwChange">パスワードを変更</button>
+        <button id="pwReset" class="sub">初期パスワードに戻す</button>
+      </div>
+      <p class="warn" id="pwWarn" hidden>初期パスワードのままです。変更してください。</p>
+    </div>
+
+    <details class="box">
+      <summary>音の書き方とmicro:bit側の準備</summary>
+      <p>音は「音名オクターブ:長さ(ミリ秒)」を空白で区切って並べます。休みは <code>R:長さ</code>。<br>
+         例: <code>C5:200 E5:200 R:100 G5:400</code>(♯は <code>F#4</code>、♭は <code>Bb3</code>)。24音まで。</p>
+      <p>micro:bit側は <code>microbit_receiver.ts</code> をMakeCodeに貼り付けます。<br>
+         ・拡張機能で「Bluetooth」を追加<br>
+         ・プロジェクトの設定 → 「ペアリング不要」<br>
+         ・v2は内蔵スピーカー、v1はP0にブザー</p>
+    </details>
+  </aside>
+</div>
+
+<dialog id="pwDlg">
+  <h2>管理者ログイン</h2>
+  <input id="pwInput" type="password" placeholder="パスワード" autocomplete="current-password">
+  <span class="err" id="pwErr"></span>
+  <div class="row" style="justify-content:flex-end">
+    <button id="pwCancel" class="sub">キャンセル</button>
+    <button id="pwOk">入る</button>
+  </div>
+</dialog>
+
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet@2.1.1/dist/mobilenet.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+const WATCH = null;   // (旧)リンクだけで見られる視聴モードは廃止。映像はIDで入った人だけに送る
+if (WATCH) document.body.classList.add('viewing');
+
+/* ===== 動物の定義 =====
+   MobileNet(ImageNet 1000クラス)の英語クラス名の「最初の名前」と一致したら、その動物とみなす。
+   動物を増やすときは ANIMALS に1つ足すだけ。code は micro:bit の画面に出る1文字。 */
+const ANIMALS = {
+  kuma: { label:'クマ', code:'K', names:['brown bear','American black bear','ice bear','sloth bear'],
+          melody:'C4:300 G3:300 C4:300 G3:300 C4:300 G3:300' },
+  inoshishi: { label:'イノシシ', code:'I', names:['wild boar','hog','warthog'],
+          melody:'E6:100 R:60 E6:100 R:60 E6:100 R:60 E6:100 R:60 E6:100' },
+  saru: { label:'サル', code:'S', names:['macaque','baboon','langur','patas','guenon','colobus','capuchin','gibbon','siamang',
+          'proboscis monkey','howler monkey','spider monkey','squirrel monkey','titi','marmoset'],
+          melody:'C5:120 E5:120 G5:120 C6:240', defaultOn:false }
+};
+const HOLD_MS = 1500;
+const LOOKUP = {};
+for (const [k,a] of Object.entries(ANIMALS)) for (const n of a.names) LOOKUP[n.toLowerCase()] = k;
+
+/* ===== 設定の保存 ===== */
+const KEY = 'animalSensorV2';
+function loadCfg() {
+  let c = {};
+  try { c = JSON.parse(localStorage.getItem(KEY) || '{}'); } catch {}
+  c.th = c.th ?? 30; c.cd = c.cd ?? 6; c.local = c.local ?? true; c.animals = c.animals || {};
+  c.range = c.range ?? 'all'; c.iv = c.iv ?? 300; c.conf = c.conf ?? 1; c.bright = c.bright ?? 100;
+  c.vol = c.vol ?? 50; c.aop = c.aop ?? 42; c.wake = c.wake ?? true; c.voice = c.voice ?? false;
+  c.notif = c.notif ?? false; c.pubLog = c.pubLog ?? true; c.logMax = c.logMax ?? 300;
+  c.sch = Object.assign({ on:false, from:'18:00', to:'06:00' }, c.sch);
+  for (const [k,a] of Object.entries(ANIMALS))
+    c.animals[k] = Object.assign({ on: a.defaultOn !== false, melody: a.melody }, c.animals[k]);
+  return c;
+}
+function saveCfg() { try { localStorage.setItem(KEY, JSON.stringify(cfg)); } catch {} }
+const cfg = loadCfg();
+cfg.custom = cfg.custom || []; cfg.sounds = cfg.sounds || []; cfg.lightSec = cfg.lightSec ?? 10; cfg.servoHome = cfg.servoHome ?? -1;
+for (const c of cfg.custom) { ANIMALS[c.id] = { label:c.label, code:c.code, names:c.names, melody:c.melody, custom:true }; for (const n of c.names) LOOKUP[n.toLowerCase()] = c.id; }
+for (const [k,a] of Object.entries(ANIMALS)) { const c = cfg.animals[k] = Object.assign({ on:true, melody:a.melody }, cfg.animals[k]); c.light = c.light ?? 'on'; c.servo = c.servo ?? -1; }
+
+/* ===== 画面モード(公開 / 管理)とパスワード =====
+   ※ パスワードはこの端末のブラウザの中だけで確認します。画面を切り替えるための簡易ロックで、
+     強い防犯用ではありません。初期パスワード: animal2026(管理画面で変更してください) */
+const DEFAULT_HASH = '95518332d8774b5fc6f6d26a4115e9c58809eca695b49db043492ac819fd6094';
+const PW_KEY = 'animalSensorPw';
+let mode = 'public', fails = 0, lockUntil = 0;
+async function sha256(s) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s));
+  return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, '0')).join('');
+}
+function curHash() { try { return localStorage.getItem(PW_KEY) || DEFAULT_HASH; } catch { return DEFAULT_HASH; } }
+function setMode(m) {
+  mode = m;
+  document.body.dataset.mode = m;
+  $('modeTag').textContent = m === 'admin' ? '管理画面' : '一般公開画面';
+  $('adminOpen').hidden = m === 'admin';
+  $('adminExit').hidden = m !== 'admin';
+  $('pwWarn').hidden = !(m === 'admin' && curHash() === DEFAULT_HASH);
+  if (m === 'public') $('newPw').value = '';
+  renderSeen();
+}
+$('adminOpen').addEventListener('click', () => {
+  $('pwInput').value = ''; $('pwErr').textContent = ''; $('pwDlg').showModal(); $('pwInput').focus();
+});
+$('pwCancel').addEventListener('click', () => $('pwDlg').close());
+async function tryLogin() {
+  const now = Date.now();
+  if (now < lockUntil) { $('pwErr').textContent = Math.ceil((lockUntil - now)/1000) + '秒待ってからやり直してください'; return; }
+  if (!window.crypto?.subtle) { $('pwErr').textContent = 'この開き方ではログインできません(https か localhost で開いてください)'; return; }
+  if (await sha256($('pwInput').value) === curHash()) { fails = 0; $('pwDlg').close(); setMode('admin'); }
+  else {
+    fails++;
+    if (fails >= 5) { lockUntil = Date.now() + 30000; fails = 0; $('pwErr').textContent = '5回まちがえました。30秒待ってください'; }
+    else $('pwErr').textContent = 'パスワードがちがいます';
+  }
+}
+$('pwOk').addEventListener('click', tryLogin);
+$('pwInput').addEventListener('keydown', e => { if (e.key === 'Enter') tryLogin(); });
+$('adminExit').addEventListener('click', () => setMode('public'));
+$('pwChange').addEventListener('click', async () => {
+  const v = $('newPw').value;
+  if (v.length < 6) { $('pwMsg').textContent = '6文字以上にしてください'; return; }
+  try { localStorage.setItem(PW_KEY, await sha256(v)); $('newPw').value = ''; $('pwMsg').style.color = '#8fd16a';
+        $('pwMsg').textContent = '変更しました'; $('pwWarn').hidden = true; }
+  catch { $('pwMsg').style.color = ''; $('pwMsg').textContent = '保存できませんでした'; }
+});
+$('pwReset').addEventListener('click', () => {
+  try { localStorage.removeItem(PW_KEY); } catch {}
+  $('pwMsg').style.color = ''; $('pwMsg').textContent = '初期パスワードに戻しました'; $('pwWarn').hidden = false;
+});
+
+/* ===== 音の解析 ===== */
+const SEMI = { C:0, D:2, E:4, F:5, G:7, A:9, B:11 };
+function parseMelody(s) {
+  const out = [];
+  for (const tok of s.trim().split(/[\s,]+/).filter(Boolean)) {
+    const m = tok.match(/^(?:([A-Ga-g])([#b]?)(\d)|[Rr]):(\d{1,4})$/);
+    if (!m) throw new Error('「' + tok + '」が読めません(例: C5:200)');
+    const ms = +m[4];
+    if (m[1] === undefined) out.push([0, ms]);
+    else {
+      const midi = 12*(+m[3]+1) + SEMI[m[1].toUpperCase()] + (m[2]==='#' ? 1 : m[2]==='b' ? -1 : 0);
+      out.push([Math.round(440 * Math.pow(2, (midi-69)/12)), ms]);
+    }
+  }
+  if (!out.length) throw new Error('音がありません');
+  if (out.length > 24) throw new Error('音は24個までです');
+  return out;
+}
+
+/* ===== この端末で鳴らす ===== */
+let actx;
+function playLocal(notes) {
+  actx = actx || new (window.AudioContext || window.webkitAudioContext)();
+  let t = actx.currentTime + 0.05;
+  for (const [f, ms] of notes) {
+    if (f > 0) {
+      const o = actx.createOscillator(), g = actx.createGain();
+      o.type = 'square'; o.frequency.value = f; g.gain.value = cfg.vol / 100 * 0.16;
+      o.connect(g).connect(actx.destination);
+      o.start(t); o.stop(t + ms/1000);
+    }
+    t += ms/1000;
+  }
+}
+
+/* ===== micro:bit(Bluetooth UART) ===== */
+const UART_SVC = '6e400001-b5a3-f393-a0a9-e50e24dcca9e';
+const UART_RX  = '6e400003-b5a3-f393-a0a9-e50e24dcca9e';
+let rx = null, queue = Promise.resolve();
+function setBle(on, name) {
+  $('bleDot').classList.toggle('on', on);
+  $('bleText').textContent = on ? ('接続中: ' + name) : 'micro:bit 未接続';
+  $('bleBtn').textContent = on ? '再接続' : 'micro:bitに接続';
+}
+const withTimeout = (p, ms) => Promise.race([p, new Promise((_, rj) => setTimeout(() => rj(new Error('タイムアウト')), ms))]);
+let bleDev = null, bleBusy = false, bleGen = 0, bleTimer = null, bleManual = false, bleFail = 0, bleTx = null;
+const bleLive = () => !!(bleDev && bleDev.gatt && bleDev.gatt.connected && rx);
+const onTxEv = ev => onTx(new TextDecoder().decode(ev.target.value));
+const bleDrop = ev => bleOnDrop(ev.target);
+function bleReset() {   // 切断したら、古い値を最新として見せない
+  rx = null; txBuf = ''; hw.light = null; hw.servo = null; pir.on = false; queue = Promise.resolve(); bleFail = 0;
+  if (bleTx) { try { bleTx.removeEventListener('characteristicvaluechanged', onTxEv); } catch {} bleTx = null; }
+  clearTimeout(homeT);
+}
+async function bleLink(dev, gen) {
+  const srv = await dev.gatt.connect();
+  const svc = await srv.getPrimaryService(UART_SVC);
+  const r = await svc.getCharacteristic(UART_RX), tx = await svc.getCharacteristic(UART_TX);
+  await tx.startNotifications();
+  if (gen !== bleGen) { try { dev.gatt.disconnect(); } catch {} throw new Error('cancelled'); }
+  if (bleTx) try { bleTx.removeEventListener('characteristicvaluechanged', onTxEv); } catch {}
+  bleTx = tx; tx.addEventListener('characteristicvaluechanged', onTxEv);
+  rx = r; txBuf = ''; bleFail = 0; setBle(true, dev.name);
+}
+function bleOnDrop(dev) {
+  if (dev !== bleDev) return;
+  bleReset(); setBle(false);
+  if (bleManual) return;
+  const gen = ++bleGen; let n = 0;
+  const retry = async () => {   // 間隔をのばしながら最大6回(負荷を増やさない)
+    if (gen !== bleGen || dev !== bleDev) return;
+    if (++n > 6) { $('bleText').textContent = '再接続できませんでした。「micro:bitに接続」を押してください'; return; }
+    $('bleText').textContent = 'micro:bit 再接続中…(' + n + '/6)';
+    try { await withTimeout(bleLink(dev, gen), 15000); }
+    catch { if (gen === bleGen) bleTimer = setTimeout(retry, Math.min(2000 * 2 ** (n - 1), 15000)); }
+  };
+  bleTimer = setTimeout(retry, 2000);
+}
+$('bleBtn').addEventListener('click', async () => {
+  if (bleBusy) return;
+  if (!navigator.bluetooth) { alert('このブラウザはWeb Bluetoothに対応していません。PC/AndroidのChromeで開いてください。'); return; }
+  bleBusy = true; $('bleBtn').disabled = true;
+  try {
+    clearTimeout(bleTimer); bleManual = true; ++bleGen;
+    if (bleDev && bleDev.gatt.connected) bleDev.gatt.disconnect();
+    const dev = await navigator.bluetooth.requestDevice({ filters: [{ namePrefix: 'BBC micro:bit' }], optionalServices: [UART_SVC] });
+    if (bleDev && bleDev !== dev) bleDev.removeEventListener('gattserverdisconnected', bleDrop);
+    bleDev = dev; dev.addEventListener('gattserverdisconnected', bleDrop);   // 同じ関数なので重複登録されない
+    bleManual = false; $('bleText').textContent = 'micro:bit 接続中…';
+    await withTimeout(bleLink(dev, ++bleGen), 15000);
+  } catch (e) {
+    bleManual = false;
+    if (bleDev && bleDev.gatt.connected && !rx) try { bleDev.gatt.disconnect(); } catch {}
+    if (!bleLive()) setBle(false);
+    if (e.name !== 'NotFoundError') alert('接続できませんでした: ' + e.message);
+  } finally { bleBusy = false; $('bleBtn').disabled = false; }
+});
+function sendBle(text) {
+  if (!bleLive() || !/^[\x20-\x7E\n]{1,400}$/.test(text)) return false;   // 接続中でないとき・想定外の文字は送らない
+  const r = rx, data = new TextEncoder().encode(text);
+  queue = queue.then(async () => {
+    for (let i = 0; i < data.length; i += 20) {
+      if (r !== rx) return;
+      const chunk = data.slice(i, i + 20);
+      if (r.writeValueWithoutResponse) await r.writeValueWithoutResponse(chunk); else await r.writeValue(chunk);
+    }
+    bleFail = 0;
+  }).catch(e => { console.warn('送信失敗', e); if (++bleFail >= 3 && bleDev) try { bleDev.gatt.disconnect(); } catch {} });
+  return true;
+}
+/* 送る形式:  K|262,300,196,300\n   (動物コード | 周波数Hz,長さms,...) */
+function fire(key) {
+  let notes;
+  try { notes = parseMelody(cfg.animals[key].melody); } catch { return; }
+  act(key);
+  sendBle(ANIMALS[key].code + '|' + notes.map(n => n.join(',')).join(',') + '\n');
+  if (cfg.local) playLocal(notes);
+}
+
+/* ===== 管理画面の操作パネル ===== */
+function renderCards() {
+  $('cards').innerHTML = Object.entries(ANIMALS).map(([k,a]) => `
+    <div class="box card" data-k="${k}">
+      <div class="head">
+        <label><input type="checkbox" class="en"> ${a.label}</label>
+        <span class="muted">画面表示: ${a.code}</span>
+      </div>
+      <input type="text" class="mel" aria-label="${a.label}の音" spellcheck="false">
+      <span class="err"></span>
+      <div class="row">
+        <button class="prev sub">試し聞き</button>
+        <button class="test">micro:bitに送る</button>
+        <button class="reset sub">初期値に戻す</button>
+      </div>
+    </div>`).join('');
+  for (const card of document.querySelectorAll('.card')) {
+    const k = card.dataset.k, mel = card.querySelector('.mel'), err = card.querySelector('.err');
+    card.querySelector('.en').checked = cfg.animals[k].on;
+    mel.value = cfg.animals[k].melody;
+    const check = () => {
+      try { const n = parseMelody(mel.value); err.textContent = '';
+            cfg.animals[k].melody = mel.value; saveCfg(); return n; }
+      catch (e) { err.textContent = e.message; return null; }
+    };
+    mel.addEventListener('input', check);
+    card.querySelector('.en').addEventListener('change', e => { cfg.animals[k].on = e.target.checked; saveCfg(); });
+    card.querySelector('.prev').addEventListener('click', () => { const n = check(); if (n) playLocal(n); });
+    card.querySelector('.test').addEventListener('click', () => {
+      if (!check()) return;
+      if (!rx) { err.textContent = '先にmicro:bitに接続してください'; return; }
+      fire(k);
+    });
+    card.querySelector('.reset').addEventListener('click', () => { mel.value = ANIMALS[k].melody; check(); });
+  }
+}
+function bindSliders() {
+  $('th').value = cfg.th; $('cd').value = cfg.cd; $('local').checked = cfg.local;
+  const upd = () => { $('thv').textContent = cfg.th + '%'; $('cdv').textContent = cfg.cd + '秒'; };
+  upd();
+  $('th').addEventListener('input', e => { cfg.th = +e.target.value; upd(); saveCfg(); });
+  $('cd').addEventListener('input', e => { cfg.cd = +e.target.value; upd(); saveCfg(); });
+  $('local').addEventListener('change', e => { cfg.local = e.target.checked; saveCfg(); });
+}
+renderCards(); bindSliders();
+
+/* ===== カメラ(リアルタイム表示)と検知 ===== */
+const video = $('video');
+let net = null, lastHit = 0, lastFire = {}, stream = null, facing = 'environment', looping = false;
+let lastPreds = [], lastKeys = [];
+
+async function openCam(deviceId) {
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  const pick = deviceId ? { deviceId: { exact: deviceId } } : { facingMode: { ideal: facing } };
+  stream = await navigator.mediaDevices.getUserMedia({
+    video: Object.assign({ width: { ideal: 1280 }, height: { ideal: 720 } }, pick), audio: false });
+  video.srcObject = stream;
+  await video.play();
+  stream.getVideoTracks()[0].onended = async () => {   // カメラが切れたら自動で復帰
+    for (let i = 0; i < 10; i++) {
+      $('seen').textContent = 'カメラが切れました。再接続中…';
+      await new Promise(r => setTimeout(r, 3000));
+      try { await openCam(cfg.cam || undefined); return; } catch {}
+    }
+  };
+  $('startBox').hidden = true;      // カメラ映像をそのまま画面に出す
+  $('live').hidden = false;
+  const cams = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'videoinput');
+  const cur = stream.getVideoTracks()[0].getSettings();
+  const sel = $('camSel');
+  sel.innerHTML = '';
+  cams.forEach((d, i) => sel.add(new Option(d.label || ('カメラ' + (i + 1)), d.deviceId)));
+  if (cur.deviceId) sel.value = cur.deviceId;
+  if (cur.facingMode) facing = cur.facingMode;
+  cfg.cam = cur.deviceId || ''; saveCfg();
+  liveRefresh();
+}
+
+$('startCam').addEventListener('click', async () => {
+  $('camErr').textContent = '';
+  try {
+    try { await openCam(cfg.cam || undefined); }
+    catch { await openCam(); }
+    if (!net) {
+      $('seen').textContent = 'AIモデルを読み込み中…(映像はすでに表示されています)';
+      net = await mobilenet.load({ version: 2, alpha: 1.0 });
+    }
+    if (!looping) { looping = true; loop(); }
+    wakeLock();
+    if (!cfg.live) { cfg.live = true; saveCfg(); $('liveOn').checked = true; liveStart(); }
+    syncLiveBtn();   // カメラを始めたら、自動でライブ配信もオン
+  } catch (e) {
+    $('startBox').hidden = false; $('live').hidden = true;
+    $('camErr').textContent = e.name === 'NotAllowedError'
+      ? 'カメラの許可がありません。ブラウザの設定でこのページのカメラを許可してください。'
+      : 'カメラを開始できませんでした: ' + e.message;
+  }
+});
+$('camSel').addEventListener('change', e => { if (stream) openCam(e.target.value).catch(err => alert(err.message)); });
+$('flip').addEventListener('click', () => {
+  if (!stream) return;
+  facing = facing === 'environment' ? 'user' : 'environment';
+  openCam().catch(err => alert(err.message));
+});
+
+/* 画面下の表示: 公開画面は簡単な状態だけ、管理画面はAIの見ているものも出す */
+function renderSeen() {
+  const el = $('seen');
+  if (!looping) { el.textContent = stream ? 'AIモデルを読み込み中…' : 'カメラを開始してください。'; el.classList.remove('alerting'); return; }
+  const alerting = lastKeys.length > 0;
+  el.classList.toggle('alerting', alerting && performance.now() - lastHit < HOLD_MS);
+  if (mode === 'admin') {
+    el.innerHTML = 'AIが見ているもの: ' + lastPreds.slice(0,3).map(p =>
+      '<b>' + p.className.split(',')[0] + '</b> ' + Math.round(p.probability*100) + '%').join(' / ');
+  } else {
+    el.textContent = alerting ? lastKeys.map(k => ANIMALS[k].label).join('・') + 'を検知しています' : '見張り中(動物は見つかっていません)';
+  }
+}
+
+async function loop() {
+  if (video.videoWidth && inSchedule() && pirActive()) {
+    const preds = await net.classify(frameSource(), 5);
+    const now = performance.now();
+    const hits = {};
+    for (const p of preds) {
+      const key = LOOKUP[p.className.split(',')[0].trim().toLowerCase()];
+      if (key && cfg.animals[key].on && p.probability >= cfg.th / 100)
+        hits[key] = Math.max(hits[key] || 0, p.probability);
+    }
+    const keys = Object.keys(hits);
+    for (const k of keys) {
+      streak[k] = (streak[k] || 0) + 1;
+      if (streak[k] < cfg.conf) continue;          // 連続で見えるまで反応しない(誤検知防止)
+      lastHit = now;
+      if (!lastFire[k] || now - lastFire[k] > cfg.cd * 1000) { lastFire[k] = now; fire(k); record(k, hits[k]); }
+    }
+    for (const k in streak) if (!hits[k]) streak[k] = 0;
+    const on = now - lastHit < HOLD_MS;
+    $('alert').classList.toggle('on', on);
+    $('msg').classList.toggle('on', on);
+    if (keys.length) $('msg').textContent = keys.map(k => ANIMALS[k].label).join('・') + 'を検知!';
+    document.querySelectorAll('.card').forEach(c => c.classList.toggle('hit', !!hits[c.dataset.k]));
+    lastPreds = preds; lastKeys = keys;
+    renderSeen();
+  }
+  if (!inSchedule()) {
+    $('alert').classList.remove('on'); $('msg').classList.remove('on');
+    $('seen').textContent = '監視時間外です(' + cfg.sch.from + '〜' + cfg.sch.to + ' に監視します)';
+  }
+  pirTick();
+  setTimeout(loop, cfg.pir && !pirActive() ? 1000 : cfg.iv);
+}
+
+/* ===== 便利機能 ===== */
+const streak = {};
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;' }[c]));
+const lab = k => esc((ANIMALS[k] && ANIMALS[k].label) || k);
+const fmt = t => new Date(t).toLocaleString('ja-JP', { month:'numeric', day:'numeric', hour:'2-digit', minute:'2-digit' });
+const dl = (name, text, type) => { const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([text], { type })); a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000); };
+
+/* 見る範囲(拡大・左右)と明るさ補正をかけた画像をAIに渡す */
+const fc = document.createElement('canvas'), fx = fc.getContext('2d');
+function frameSource() {
+  const W = video.videoWidth, H = video.videoHeight;
+  let sx = 0, sy = 0, sw = W, sh = H;
+  if (cfg.range === 'zoom') { sw = W/2; sh = H/2; sx = W/4; sy = H/4; }
+  else if (cfg.range === 'left') sw = W/2;
+  else if (cfg.range === 'right') { sw = W/2; sx = W/2; }
+  fc.width = 448; fc.height = Math.round(448 * sh / sw);
+  fx.filter = cfg.bright === 100 ? 'none' : 'brightness(' + cfg.bright + '%)';
+  fx.drawImage(video, sx, sy, sw, sh, 0, 0, fc.width, fc.height);
+  return fc;
+}
+function inSchedule() {
+  if (!cfg.sch.on) return true;
+  const d = new Date(), m = d.getHours()*60 + d.getMinutes();
+  const [a, b] = [cfg.sch.from, cfg.sch.to].map(t => { const [h, mi] = t.split(':'); return +h*60 + +mi; });
+  return a <= b ? (m >= a && m < b) : (m >= a || m < b);
+}
+
+/* 検知の記録(いつ・どの動物・確率・写真) */
+const LOGKEY = 'animalSensorLog';
+let log = [];
+try { log = JSON.parse(localStorage.getItem(LOGKEY) || '[]'); } catch {}
+function saveLog() {
+  try { localStorage.setItem(LOGKEY, JSON.stringify(log)); }
+  catch { log.forEach(e => delete e.img); try { localStorage.setItem(LOGKEY, JSON.stringify(log)); } catch {} }
+}
+function snap() {
+  const c = document.createElement('canvas'); c.width = 320; c.height = Math.round(320 * video.videoHeight / video.videoWidth);
+  c.getContext('2d').drawImage(video, 0, 0, c.width, c.height); return c.toDataURL('image/jpeg', .6);
+}
+function record(k, p, test) {
+  const e = { t: Date.now(), k, p: Math.round(p * 100) };
+  if (test) e.test = 1;
+  if (video.videoWidth) e.img = snap();
+  log.push(e);
+  if (log.length > cfg.logMax) log.splice(0, log.length - cfg.logMax);
+  log.forEach((x, i) => { if (x.img && i < log.length - 30) delete x.img; });   // 写真は新しい30件だけ残す
+  saveLog(); renderLog();
+  if (cfg.voice && window.speechSynthesis) { const u = new SpeechSynthesisUtterance(lab(k) + 'が出ました'); u.lang = 'ja-JP'; speechSynthesis.speak(u); }
+  if (cfg.notif && window.Notification && Notification.permission === 'granted') { try { new Notification(lab(k) + 'を検知', { body: fmt(e.t) }); } catch {} }
+}
+function renderLog() {
+  const real = log.filter(e => !e.test), today = new Date().toDateString();
+  const td = real.filter(e => new Date(e.t).toDateString() === today), last = real[real.length - 1];
+  const pl = $('pubLog');
+  pl.hidden = !(cfg.pubLog && log.length);
+  pl.innerHTML = '<b>今日の検知: ' + td.length + '回</b>' + (last ? ' ／ 最後: ' + fmt(last.t) + ' ' + lab(last.k) : '') +
+    log.slice(-5).reverse().map(e => '<div class="li">' + fmt(e.t) + ' <b>' + lab(e.k) + '</b>' + (e.test ? '(テスト)' : '') + '</div>').join('');
+  const fa = $('fAnimal').value, fd = $('fDate').value;
+  const rows = log.filter(e => (!fa || e.k === fa) && (!fd || new Date(e.t).toLocaleDateString('sv-SE') === fd));
+  const rr = rows.filter(e => !e.test), cnt = {};
+  rr.forEach(e => cnt[e.k] = (cnt[e.k] || 0) + 1);
+  $('stats').textContent = '合計 ' + rr.length + '回' + Object.keys(cnt).map(k => ' ／ ' + lab(k) + ' ' + cnt[k] + '回').join('');
+  const hc = Array(24).fill(0); rr.forEach(e => hc[new Date(e.t).getHours()]++);
+  const mx = Math.max(1, ...hc);
+  $('hourChart').innerHTML = hc.map((n, h) => '<div title="' + h + '時 ' + n + '回"><i style="height:' + (n / mx * 48) + 'px"></i>' + (h % 6 === 0 ? h : '&nbsp;') + '</div>').join('');
+  $('logList').innerHTML = rows.slice(-100).reverse().map(e => '<div class="li"><span>' + fmt(e.t) + '</span><b>' + lab(e.k) + '</b><span>' + e.p + '%' + (e.test ? ' テスト' : '') + '</span>' +
+    (e.img ? '<a href="' + e.img + '" download="' + lab(e.k) + '_' + e.t + '.jpg"><img src="' + e.img + '" alt="写真(タップで保存)"></a>' : '') + '</div>').join('') || '<span class="muted">記録はまだありません</span>';
+}
+
+/* スリープ防止・全画面 */
+let wl = null;
+async function wakeLock() {
+  try {
+    if (cfg.wake && 'wakeLock' in navigator && stream && !wl) { wl = await navigator.wakeLock.request('screen'); wl.addEventListener('release', () => wl = null); }
+    else if (!cfg.wake && wl) wl.release();
+  } catch {}
+}
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') wakeLock(); });
+$('fs').addEventListener('click', () => { if (document.fullscreenElement) document.exitFullscreen(); else if (document.documentElement.requestFullscreen) document.documentElement.requestFullscreen(); });
+
+/* 設定欄のつなぎこみ */
+function applyLook() { document.documentElement.style.setProperty('--aop', cfg.aop / 100); video.style.filter = 'brightness(' + cfg.bright + '%)'; }
+const UNITS = { iv: v => v/1000 + '秒', conf: v => v + '回', bright: v => v + '%', vol: v => v + '%', aop: v => v + '%' };
+for (const k of Object.keys(UNITS)) {
+  const el = $(k), out = $(k + 'v'); el.value = cfg[k]; out.textContent = UNITS[k](cfg[k]);
+  el.addEventListener('input', () => { cfg[k] = +el.value; out.textContent = UNITS[k](cfg[k]); applyLook(); saveCfg(); });
+}
+$('rng').value = cfg.range; $('rng').addEventListener('change', e => { cfg.range = e.target.value; saveCfg(); });
+for (const k of ['wake', 'voice', 'notif', 'pubLog']) {
+  const el = $(k === 'pubLog' ? 'pubLogOn' : k); el.checked = cfg[k];
+  el.addEventListener('change', () => {
+    cfg[k] = el.checked; saveCfg();
+    if (k === 'notif' && el.checked && window.Notification) Notification.requestPermission();
+    if (k === 'wake') wakeLock();
+    if (k === 'pubLog') renderLog();
+  });
+}
+$('schOn').checked = cfg.sch.on; $('schFrom').value = cfg.sch.from; $('schTo').value = cfg.sch.to;
+for (const id of ['schOn', 'schFrom', 'schTo'])
+  $(id).addEventListener('change', () => { cfg.sch = { on: $('schOn').checked, from: $('schFrom').value || '18:00', to: $('schTo').value || '06:00' }; saveCfg(); });
+
+const opts = Object.entries(ANIMALS).map(([k, a]) => '<option value="' + k + '">' + a.label + '</option>').join('');
+$('testAnimal').innerHTML = opts; $('fAnimal').innerHTML = '<option value="">すべての動物</option>' + opts;
+$('testDet').addEventListener('click', () => {
+  const k = $('testAnimal').value;
+  lastHit = performance.now(); lastKeys = [k]; fire(k); record(k, 1, true);
+  $('msg').textContent = lab(k) + 'を検知!(テスト)'; $('alert').classList.add('on'); $('msg').classList.add('on'); renderSeen();
+  setTimeout(() => { if (performance.now() - lastHit >= HOLD_MS) { $('alert').classList.remove('on'); $('msg').classList.remove('on'); } }, HOLD_MS + 100);
+});
+$('fAnimal').addEventListener('change', renderLog); $('fDate').addEventListener('change', renderLog);
+$('fClr').addEventListener('click', () => { $('fDate').value = ''; $('fAnimal').value = ''; renderLog(); });
+$('csv').addEventListener('click', () => dl('kenchi_log.csv', '\ufeff' + ['日時,動物,確率%,テスト'].concat(log.map(e =>
+  [new Date(e.t).toLocaleString('ja-JP'), lab(e.k), e.p, e.test ? 'テスト' : ''].join(','))).join('\r\n'), 'text/csv'));
+$('logClr').addEventListener('click', () => { if (confirm('検知の記録を全部消します。よろしいですか?')) { log = []; saveLog(); renderLog(); } });
+$('bkOut').addEventListener('click', () => dl('animal_sensor_backup.json', JSON.stringify({ cfg: Object.assign({}, cfg, { cam: '' }), log }), 'application/json'));
+$('bkIn').addEventListener('click', () => $('bkFile').click());
+$('bkFile').addEventListener('change', async e => {
+  try {
+    const d = JSON.parse(await e.target.files[0].text()); if (!d.cfg) throw 0;
+    localStorage.setItem(KEY, JSON.stringify(d.cfg)); if (d.log) localStorage.setItem(LOGKEY, JSON.stringify(d.log));
+    alert('読み込みました。画面を更新します。'); location.reload();
+  } catch { alert('読み込めませんでした'); }
+});
+/* ===== v3: 動物と音の追加 / ライト・サーボ / ダッシュボード ===== */
+const UART_TX = '6e400002-b5a3-f393-a0a9-e50e24dcca9e';
+const hw = { light: null, servo: null }, ST = ['消灯', '点灯', '点滅'];
+let txBuf = '', homeT = null;
+function onTx(t) {
+  txBuf += t; let i;
+  while ((i = txBuf.indexOf('\n')) >= 0) {
+    const l = txBuf.slice(0, i).trim(); txBuf = txBuf.slice(i + 1);
+    if (l.startsWith('P|')) pirEvent(l.slice(2) === '1');
+    if (l.startsWith('S|')) { const [a, b] = l.slice(2).split(',').map(Number); if ([0, 1, 2].includes(a) && b >= 0 && b <= 180) { hw.light = a; hw.servo = b; renderStatus(); } }
+  }
+}
+function cmd(t) {
+  const m = /^([LV])\|(-?\d{1,3})$/.exec(String(t)); if (!m) return;
+  let v = +m[2];
+  if (m[1] === 'L' && ![0, 1, 2].includes(v)) return;
+  if (m[1] === 'V') v = Math.max(0, Math.min(180, v));
+  if (sendBle(m[1] + '|' + v + '\n')) { if (m[1] === 'L') hw.light = v; else hw.servo = v; }   // 送れなかったら状態を変えない
+  renderStatus();
+}
+function act(k) {   // 検知したらライト・サーボを動かし、しばらくしたら元に戻す
+  const c = cfg.animals[k];
+  if (c.light === 'on') cmd('L|1'); else if (c.light === 'blink') cmd('L|2');
+  if (c.servo >= 0) cmd('V|' + c.servo);
+  clearTimeout(homeT);
+  homeT = setTimeout(() => { if (hw.light) cmd('L|0'); if (cfg.servoHome >= 0) cmd('V|' + cfg.servoHome); }, cfg.lightSec * 1000);
+}
+
+const PRESET = [['サイレン', 'C4:300 G4:300 C4:300 G4:300 C4:300 G4:300'], ['ピピピ(速い)', 'E6:100 R:60 E6:100 R:60 E6:100 R:60 E6:100'],
+  ['上がる音', 'C5:120 E5:120 G5:120 C6:240'], ['下がる音', 'C6:150 G5:150 E5:150 C5:300'], ['低いブザー', 'C3:500 R:100 C3:500'],
+  ['ファンファーレ', 'C5:150 C5:150 C5:150 G5:450 E5:150 G5:600']];
+const lib = () => PRESET.concat(cfg.sounds.map(x => [x.name, x.melody]));
+function renderSounds() {
+  $('soundList').innerHTML = lib().map((x, i) => '<div class="li"><b>' + esc(x[0]) + '</b><span class="muted">' + esc(x[1]) + '</span><span style="margin-left:auto"><button class="sub pl" data-i="' + i + '">♪</button> ' +
+    (i >= PRESET.length ? '<button class="sub dl" data-i="' + (i - PRESET.length) + '">削除</button>' : '') + '</span></div>').join('');
+}
+$('soundList').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  if (b.classList.contains('pl')) { try { playLocal(parseMelody(lib()[+b.dataset.i][1])); } catch {} }
+  else if (confirm('この音を削除しますか?')) { cfg.sounds.splice(+b.dataset.i, 1); saveCfg(); renderSounds(); renderCards2(); }
+});
+$('sTry').addEventListener('click', () => { try { playLocal(parseMelody($('sMel').value)); $('sErr').textContent = ''; } catch (e) { $('sErr').textContent = e.message; } });
+$('sAdd').addEventListener('click', () => {
+  const n = $('sName').value.trim();
+  try { parseMelody($('sMel').value); } catch (e) { $('sErr').textContent = e.message; return; }
+  if (!n) { $('sErr').textContent = '名前を入れてください'; return; }
+  cfg.sounds.push({ name: n, melody: $('sMel').value.trim() }); saveCfg();
+  $('sErr').textContent = ''; $('sName').value = ''; renderSounds(); renderCards2();
+});
+
+$('cls').innerHTML = 'tiger,lion,leopard,jaguar,cheetah,snow leopard,cougar,lynx,timber wolf,coyote,red fox,grey fox,Arctic fox,badger,skunk,otter,mink,weasel,wild boar,hog,warthog,ox,water buffalo,bison,ram,bighorn,ibex,hartebeest,impala,gazelle,llama,hyena,hare,wood rabbit,porcupine,beaver,marmot,fox squirrel,armadillo,tabby,Egyptian cat,Siamese cat,brown bear,American black bear,ice bear,sloth bear,macaque,baboon,chimpanzee,gorilla,Indian elephant,African elephant,magpie,jay,bald eagle,vulture,great grey owl,goose,peacock'.split(',').map(x => '<option value="' + x + '">').join('');
+function fillSel() {
+  const o = Object.entries(ANIMALS).map(([k, a]) => '<option value="' + k + '">' + esc(a.label) + '</option>').join('');
+  $('testAnimal').innerHTML = o; $('fAnimal').innerHTML = '<option value="">すべての動物</option>' + o;
+}
+$('nAdd').addEventListener('click', () => {
+  const label = $('nName').value.trim(), names = $('nNames').value.split(',').map(x => x.trim()).filter(Boolean);
+  if (!label || !names.length) { $('nErr').textContent = '名前と、AIが使う英語名を入れてください'; return; }
+  const used = Object.values(ANIMALS).map(a => a.code), code = 'ABCDEFGHJMNOPQRTUWXYZ'.split('').find(c => !used.includes(c));
+  if (!code) { $('nErr').textContent = 'これ以上は追加できません'; return; }
+  const c = { id: 'c' + Date.now(), label, code, names, melody: 'C5:200 E5:200 G5:200' };
+  cfg.custom.push(c); ANIMALS[c.id] = Object.assign({ custom: true }, c); names.forEach(n => LOOKUP[n.toLowerCase()] = c.id);
+  cfg.animals[c.id] = { on: true, melody: c.melody, light: 'on', servo: -1 }; saveCfg();
+  $('nName').value = ''; $('nNames').value = ''; $('nErr').textContent = ''; fillSel(); renderCards2();
+});
+
+function renderCards2() {
+  $('cards').innerHTML = Object.entries(ANIMALS).map(([k, a]) => '<div class="box card" data-k="' + k + '"><div class="head"><label><input type="checkbox" class="en"> ' + esc(a.label) +
+    '</label><span class="muted">' + esc(a.names[0]) + (a.names.length > 1 ? ' ほか' : '') + '</span>' + (a.custom ? '<button class="sub del">削除</button>' : '') + '</div>' +
+    '<select class="pick"><option value="">登録した音から選ぶ…</option>' + lib().map((x, i) => '<option value="' + i + '">' + esc(x[0]) + '</option>').join('') + '</select>' +
+    '<input type="text" class="mel" aria-label="音" spellcheck="false" style="margin-top:6px"><span class="err"></span>' +
+    '<div class="row"><label>ライト <select class="lt"><option value="none">なし</option><option value="on">点灯</option><option value="blink">点滅</option></select></label>' +
+    '<label>サーボ角度 <input type="number" class="sv" min="-1" max="180" style="width:72px"></label><span class="muted">(-1=動かさない)</span></div>' +
+    '<div class="row" style="margin-top:8px"><button class="prev sub">試し聞き</button><button class="test">micro:bitに送る</button><button class="reset sub">初期値</button></div></div>').join('');
+  for (const card of document.querySelectorAll('.card')) {
+    const k = card.dataset.k, c = cfg.animals[k], q = x => card.querySelector(x), mel = q('.mel'), err = q('.err');
+    q('.en').checked = c.on; mel.value = c.melody; q('.lt').value = c.light; q('.sv').value = c.servo;
+    const check = () => { try { const n = parseMelody(mel.value); err.textContent = ''; c.melody = mel.value; saveCfg(); return n; } catch (e) { err.textContent = e.message; return null; } };
+    mel.addEventListener('input', check);
+    q('.pick').addEventListener('change', e => { if (e.target.value !== '') { mel.value = lib()[+e.target.value][1]; check(); } });
+    q('.en').addEventListener('change', e => { c.on = e.target.checked; saveCfg(); });
+    q('.lt').addEventListener('change', e => { c.light = e.target.value; saveCfg(); });
+    q('.sv').addEventListener('change', e => { c.servo = Math.max(-1, Math.min(180, +e.target.value || 0)); saveCfg(); });
+    q('.prev').addEventListener('click', () => { const n = check(); if (n) playLocal(n); });
+    q('.test').addEventListener('click', () => { if (!check()) return; if (!rx) { err.textContent = '先にmicro:bitに接続してください'; return; } fire(k); });
+    q('.reset').addEventListener('click', () => { mel.value = ANIMALS[k].melody; check(); });
+    const d = q('.del');
+    if (d) d.addEventListener('click', () => {
+      if (!confirm(ANIMALS[k].label + 'を削除しますか?')) return;
+      cfg.custom = cfg.custom.filter(x => x.id !== k); for (const n in LOOKUP) if (LOOKUP[n] === k) delete LOOKUP[n];
+      delete ANIMALS[k]; delete cfg.animals[k]; saveCfg(); fillSel(); renderCards2();
+    });
+  }
+}
+
+/* ダッシュボード */
+function renderStatus() {
+  const on = looping && lastKeys.length && performance.now() - lastHit < HOLD_MS;
+  $('sDet').textContent = on ? lastKeys.map(k => ANIMALS[k] ? ANIMALS[k].label : k).join('・') + 'を検知中' : (looping ? '見張り中' : '待機中');
+  $('sDet').parentElement.classList.toggle('danger', !!on);
+  $('sLight').textContent = hw.light == null ? '—' : ST[hw.light];
+  $('sServo').textContent = hw.servo == null ? '—' : hw.servo + '°';
+  $('sBle').textContent = rx ? '接続中' : '未接続';
+  $('sCnt').textContent = log.filter(e => !e.test && new Date(e.t).toDateString() === new Date().toDateString()).length + '回';
+}
+function chart(id, arr, lb) {
+  const mx = Math.max(1, ...arr);
+  $(id).innerHTML = arr.map((n, i) => '<div title="' + n + '回"><em>' + (n || '') + '</em><i style="height:' + (n / mx * 48) + 'px"></i>' + (lb(i) || '&nbsp;') + '</div>').join('');
+}
+function renderDash() {
+  $('gallery').innerHTML = log.filter(e => e.img).slice(-6).reverse().map(e => '<a href="' + e.img + '" download="' + lab(e.k) + '_' + e.t + '.jpg"><img src="' + e.img + '" alt=""><span>' +
+    fmt(e.t) + ' ' + lab(e.k) + (e.test ? '(テスト)' : '') + '</span></a>').join('') || '<span class="muted">撮影画像はまだありません</span>';
+  const real = log.filter(e => !e.test), hc = Array(24).fill(0); real.forEach(e => hc[new Date(e.t).getHours()]++);
+  chart('dashChart', hc, i => i % 6 ? '' : i);
+  const days = [...Array(7)].map((_, i) => { const d = new Date(); d.setDate(d.getDate() - 6 + i); return d; });
+  chart('dayChart', days.map(d => real.filter(e => new Date(e.t).toDateString() === d.toDateString()).length), i => (days[i].getMonth() + 1) + '/' + days[i].getDate());
+}
+const _rl = renderLog; renderLog = function () { _rl(); renderDash(); };
+const _rs = renderSeen;
+renderSeen = function () {
+  if (mode === 'admin' && looping && lastPreds.length) {
+    const h = 'AIが見ているもの(押すと動物の追加に使えます): ' + lastPreds.slice(0, 3).map(p => { const n = p.className.split(',')[0].trim();
+      return '<button class="chip" data-n="' + esc(n) + '">' + esc(n) + ' ' + Math.round(p.probability * 100) + '%</button>'; }).join(' ');
+    if ($('seen').dataset.h !== h) { $('seen').dataset.h = h; $('seen').innerHTML = h; }
+    $('seen').classList.toggle('alerting', lastKeys.length > 0 && performance.now() - lastHit < HOLD_MS);
+  } else { $('seen').dataset.h = ''; _rs(); }
+  renderStatus();
+};
+const _sb = setBle; setBle = function (a, b) { _sb(a, b); renderStatus(); };
+$('seen').addEventListener('click', e => { const b = e.target.closest('.chip'); if (b) { $('nNames').value = b.dataset.n; setTab('animals'); $('nName').focus(); } });
+$('lOn').addEventListener('click', () => cmd('L|1')); $('lBl').addEventListener('click', () => cmd('L|2')); $('lOff').addEventListener('click', () => cmd('L|0'));
+$('svRange').addEventListener('input', e => $('svv').textContent = e.target.value + '°');
+$('svRange').addEventListener('change', e => cmd('V|' + e.target.value));
+$('lightSec').value = cfg.lightSec; $('servoHome').value = cfg.servoHome;
+$('lightSec').addEventListener('change', e => { cfg.lightSec = Math.max(1, +e.target.value || 10); saveCfg(); });
+$('servoHome').addEventListener('change', e => { cfg.servoHome = Math.max(-1, Math.min(180, +e.target.value)); saveCfg(); });
+
+/* アプリ風のタブ(管理画面) */
+function setTab(t) {
+  document.body.dataset.tab = t; $('adminPanel').dataset.tab = t;
+  document.querySelectorAll('#tabs button').forEach(b => b.setAttribute('aria-selected', b.dataset.t === t));
+  window.scrollTo(0, 0);
+}
+$('tabs').addEventListener('click', e => { const b = e.target.closest('button'); if (b) setTab(b.dataset.t); });
+const _sm = setMode; setMode = function (m) { _sm(m); if (m === 'admin') setTab(document.body.dataset.tab || 'dash'); };
+$('app').before($('top'), $('tabs'));
+[...$('adminPanel').children].forEach(el => { el.dataset.p = (el.id === 'cards' || el.id === 'addBox' || el.id === 'soundBox') ? 'animals' : el.querySelector('#logList') ? 'log' : el.id === 'userBox' ? 'users' : 'set'; });
+setTab('dash'); fillSel(); renderSounds(); renderCards2();
+/* ===== ID入力とアクセス記録 =====
+   ※ 画面を切り替えるための簡易ロックです。HTMLを見られる人には破られるため、強い防犯用ではありません。 */
+const IDKEY = 'animalSensorId', DBKEY = 'animalSensorUsers';
+const FB = { on: false, auth: null, db: null, uid: null, busy: false, net: false, pv: null, so: 0, pres: null, onl: null };
+if (/^https:\/\/script\.google\.com\/macros\/s\/[\w-]+\/exec$/.test(cfg.gasUrl || '')) FB.on = true;   // GASのURLは端末に保存(ソースには書かない)
+const PEER_CFG = { config: { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun1.l.google.com:19302' }, { urls: 'stun:stun.cloudflare.com:3478' }] } };   // 別のWi-Fi/回線の端末ともつながりやすくする
+const device = /iPad/.test(navigator.userAgent) ? 'iPad' : /iPhone/.test(navigator.userAgent) ? 'iPhone' : /Android/.test(navigator.userAgent) ? 'Android' : /Windows/.test(navigator.userAgent) ? 'Windows' : /Mac/.test(navigator.userAgent) ? 'Mac' : 'その他';
+let local = { ids: {}, access: [] };
+try { local = Object.assign(local, JSON.parse(localStorage.getItem(DBKEY) || '{}')); } catch {}
+const saveLocal = () => { try { localStorage.setItem(DBKEY, JSON.stringify(local)); } catch {} };
+cfg.dbUrl = cfg.dbUrl || '';
+const base = () => cfg.dbUrl.trim().replace(/\/+$/, '');
+async function api(path, method, body, q) {
+  const r = await fetch(base() + path + '.json' + (q || ''), { method, body: body === undefined ? undefined : JSON.stringify(body) });
+  if (!r.ok) throw new Error('通信エラー ' + r.status); return r.json();
+}
+const U = {   // クラウドのURLがあればFirebase、なければこの端末に保存
+  async get(id) { return base() ? api('/ids/' + id, 'GET') : (local.ids[id] || null); },
+  async all() { return base() ? ((await api('/ids', 'GET')) || {}) : local.ids; },
+  async set(id, v) { if (base()) await api('/ids/' + id, 'PUT', v); else { local.ids[id] = v; saveLocal(); } },
+  async del(id) { if (base()) await api('/ids/' + id, 'DELETE'); else { delete local.ids[id]; saveLocal(); } },
+  async log(e) { if (base()) await api('/access', 'POST', e); else { local.access.push(e); local.access = local.access.slice(-500); saveLocal(); } },
+  async logs(n) { if (base()) return Object.values((await api('/access', 'GET', undefined, '?orderBy="$key"&limitToLast=' + n)) || {}); return local.access.slice(-n); },
+  async clearLogs() { if (base()) await api('/access', 'DELETE'); else { local.access = []; saveLocal(); } }
+};
+
+function enter(id, u, keep) {
+  $('gate').hidden = true; $('gOut').hidden = false;
+  me = { id, name: u.name || '', role: u.role === 'admin' ? 'admin' : 'user' };
+  document.body.dataset.role = me.role;
+  $('adminOpen').textContent = me.role === 'admin' ? '管理画面へ' : '管理者ログイン';
+  $('who').innerHTML = 'ID: ' + esc(id) + (u.name ? '(' + esc(u.name) + ')' : '') + ' <span class="role ' + (me.role === 'admin' ? 'a' : '') + '">' + (me.role === 'admin' ? '管理人' : '一般人') + '</span>';
+  try { sessionStorage.setItem(IDKEY, id); if (keep) localStorage.setItem(IDKEY, id); } catch {}
+}
+async function tryId(raw, keep) {
+  if (FB.on) return fbLogin(raw, keep);
+  const id = raw.trim().toUpperCase(); if (!id) return false;
+  let u = null, reach = ''; $('gErr').textContent = '確認中…';
+  if (!cfg.live) {   // 配信端末以外は、まず配信端末にIDを確認してもらう(つながらなければ、この端末で確認)
+    const r = await remoteAuth(id);
+    if (r === 'unreachable') reach = 'unreachable';
+    if (r && r.ok) { enterRemote(id, r, keep); return true; }
+    if (typeof r === 'string' && r.startsWith('denied')) {
+      $('gErr').textContent = r === 'denied:off' ? 'このIDは停止されています' : 'IDがちがいます';
+      try { sessionStorage.removeItem(IDKEY); localStorage.removeItem(IDKEY); } catch {}
+      return false;
+    }
+  }
+  try { u = await U.get(id); } catch { $('gErr').textContent = 'サーバーに接続できません。管理者に連絡してください'; return false; }
+  const ok = !!u && !u.off;
+  U.log({ id, name: u ? u.name || '' : '', t: Date.now(), ok: ok ? 1 : 0, r: u && u.role === 'admin' ? 'admin' : 'user', dv: device }).catch(() => {});
+  if (!ok) { $('gErr').textContent = u ? 'このIDは停止されています' : (reach === 'unreachable' && !base() ? '配信端末につながりません。配信端末でカメラを開始し、同じアドレスのページを開いたままにしてください(IDのまちがいの可能性もあります)' : 'IDがちがいます');
+    try { sessionStorage.removeItem(IDKEY); localStorage.removeItem(IDKEY); } catch {} return false; }
+  $('gErr').textContent = '';
+  u.last = Date.now(); u.count = (u.count || 0) + 1; U.set(id, u).catch(() => {});
+  enter(id, u, keep); return true;
+}
+$('gGo').addEventListener('click', () => tryId($('gId').value, $('gKeep').checked));
+$('gId').addEventListener('keydown', e => { if (e.key === 'Enter') $('gGo').click(); });
+$('gAdmin').addEventListener('click', () => $('adminOpen').click());
+$('gOut').addEventListener('click', () => {
+  try { sessionStorage.removeItem(IDKEY); localStorage.removeItem(IDKEY); } catch {}
+  setMode('public'); if (vp) { vp.destroy(); vp = null; } $('rv2').srcObject = null; $('rv2').hidden = true; video.hidden = false; $('startBox').hidden = !!stream; $('live').hidden = !stream; delete document.body.dataset.remote; $('alert').classList.remove('on'); $('msg').classList.remove('on');
+  me = null; delete document.body.dataset.role; $('adminOpen').textContent = '管理者ログイン'; $('gId').value = ''; $('gate').hidden = false; $('who').textContent = ''; $('gOut').hidden = true;
+});
+const _sm2 = setMode;
+setMode = function (m) {   // 管理者がパスワードで入ったときもID画面を閉じ、記録に残す
+  _sm2(m);
+  if (m === 'admin' && !$('gate').hidden) {
+    $('gate').hidden = true; $('who').textContent = '管理者'; document.body.dataset.role = 'admin'; me = { id: '(管理者)', name: '', role: 'admin' }; $('gOut').hidden = false;
+    U.log({ id: '(管理者)', name: '', t: Date.now(), ok: 1, dv: device }).catch(() => {});
+  }
+};
+setTimeout(async () => {   // 覚えているIDがあれば自動で入る(スクリプト全体の準備ができてから)
+  let id = null; try { id = sessionStorage.getItem(IDKEY) || localStorage.getItem(IDKEY); } catch {}
+  if (id && !WATCH && !FB.on) { let keep = false; try { keep = !!localStorage.getItem(IDKEY); } catch {} await tryId(id, keep); }
+}, 0);
+
+/* 管理画面「利用者」タブ */
+async function refreshUsers() {
+  try {
+    const ids = await U.all();
+    const rows = Object.entries(ids).sort((a, b) => (b[1].created || 0) - (a[1].created || 0));
+    $('uList').innerHTML = rows.map(([id, u]) => '<div class="li"><b>' + esc(id) + '</b><span class="role ' + (u.role === 'admin' ? 'a' : '') + '">' + (u.role === 'admin' ? '管理人' : '一般人') + '</span><span>' + esc(u.name || '') + '</span><span class="muted">' + (u.count || 0) + '回 / 最終 ' + (u.last ? fmt(u.last) : '—') +
+      '</span><span style="margin-left:auto;display:flex;gap:6px"><button class="sub uc" data-id="' + esc(id) + '">コピー</button><button class="sub ur" data-id="' + esc(id) + '">' + (u.role === 'admin' ? '一般人にする' : '管理人にする') + '</button><button class="sub ut" data-id="' + esc(id) + '">' + (u.off ? '再開' : '停止') +
+      '</button><button class="sub ud" data-id="' + esc(id) + '">削除</button></span></div>').join('') || '<span class="muted">まだIDがありません</span>';
+    const lg = await U.logs(100);
+    $('aList').innerHTML = lg.slice().reverse().map(e => '<div class="li"><span>' + fmt(e.t) + '</span><b>' + esc(e.id) + '</b><span>' + esc(e.name || '') + '</span>' + (e.ok && e.r === 'admin' ? '<span class="role a">管理人</span>' : '') + '<span class="muted">' + esc(e.dv || '') +
+      '</span><span style="margin-left:auto;color:' + (e.ok ? 'var(--ok)' : 'var(--accent)') + '">' + (e.ok ? '入室' : '失敗') + '</span></div>').join('') || '<span class="muted">記録はまだありません</span>';
+  } catch (e) { $('uList').innerHTML = '<span class="err">' + esc(e.message) + '</span>'; }
+}
+$('uList').addEventListener('click', async e => {
+  const b = e.target.closest('button'); if (!b) return; const id = b.dataset.id;
+  try {
+    if (b.classList.contains('uc')) { await navigator.clipboard.writeText(id); b.textContent = 'コピー済'; return; }
+    if (b.classList.contains('ur')) { const u = await U.get(id); if (u) { u.role = u.role === 'admin' ? 'user' : 'admin'; await U.set(id, u); } }
+    if (b.classList.contains('ut')) { const u = await U.get(id); if (u) { u.off = u.off ? 0 : 1; await U.set(id, u); } }
+    if (b.classList.contains('ud') && confirm(id + ' を削除しますか?')) await U.del(id);
+  } catch (err) { alert(err.message); }
+  refreshUsers();
+});
+$('uAdd').addEventListener('click', async () => {
+  const name = $('uName').value.trim(); let id = $('uId').value.trim().toUpperCase();
+  if (id && !/^[A-Z0-9_-]{3,20}$/.test(id)) { $('uErr').textContent = 'IDは英数字・-・_の3〜20文字にしてください'; return; }
+  try {
+    if (!id) {
+      const cs = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+      do { id = Array.from(crypto.getRandomValues(new Uint8Array(6)), b => cs[b % cs.length]).join(''); } while (await U.get(id));
+    } else if (await U.get(id)) { $('uErr').textContent = 'そのIDはすでにあります'; return; }
+    await U.set(id, { name, created: Date.now(), count: 0, off: 0, role: $('uRole').value });
+    $('uName').value = ''; $('uId').value = ''; $('uErr').textContent = '発行しました: ' + id; refreshUsers();
+  } catch (e) { $('uErr').textContent = e.message; }
+});
+$('aRef').addEventListener('click', refreshUsers);
+$('aCsv').addEventListener('click', async () => {
+  try {
+    const lg = await U.logs(1000);
+    dl('access_log.csv', '\ufeff' + ['日時,ID,名前,結果,端末'].concat(lg.map(e => [new Date(e.t).toLocaleString('ja-JP'), e.id, (e.name || '').replace(/,/g, ' '), e.ok ? '入室' : '失敗', e.dv || ''].join(','))).join('\r\n'), 'text/csv');
+  } catch (e) { alert(e.message); }
+});
+$('aClr').addEventListener('click', async () => {
+  if (!confirm('アクセス記録を全部消します。よろしいですか?')) return;
+  try { await U.clearLogs(); } catch (e) { alert(e.message); }
+  refreshUsers();
+});
+$('dbUrl').value = cfg.dbUrl;
+$('dbSave').addEventListener('click', () => { cfg.dbUrl = $('dbUrl').value.trim(); saveCfg(); refreshUsers(); });
+const _st = setTab; setTab = function (t) { _st(t); if (t === 'users') refreshUsers(); };
+
+/* ===== 権限・PIR連動・ホーム画面に追加 ===== */
+let me = null, waking = false;
+$('adminOpen').addEventListener('click', e => {   // 管理人のIDは、パスワードなしで管理画面へ
+  if (me && me.role === 'admin') { e.stopImmediatePropagation(); setMode('admin'); }
+}, true);
+
+const pir = { on: false, last: 0 };
+cfg.pir = cfg.pir ?? false; cfg.pirSec = cfg.pirSec ?? 30; cfg.pirStop = cfg.pirStop ?? true;
+const pirActive = () => !cfg.pir || Date.now() - pir.last < cfg.pirSec * 1000;
+function reopenCam() {
+  if (stream || !looping || waking) return;
+  waking = true;
+  openCam(cfg.cam || undefined).catch(() => openCam().catch(() => {})).finally(() => { waking = false; });
+}
+function pirEvent(on) {   // micro:bitから P|1(動き) / P|0(止まった) が届く
+  pir.on = on;
+  if (on) { pir.last = Date.now(); if (cfg.pir) reopenCam(); }
+  renderStatus();
+}
+function pirTick() {      // 反応がなくなったら待機(カメラも止めて節電)
+  if (!cfg.pir || !looping || pirActive()) return;
+  if (cfg.pirStop && stream && conns.size === 0) {   // 見ている人がいるときはカメラを止めない
+    stream.getTracks().forEach(t => t.stop()); stream = null; video.srcObject = null; $('live').hidden = true; }
+  $('alert').classList.remove('on'); $('msg').classList.remove('on'); $('seen').classList.remove('alerting');
+  $('seen').textContent = 'PIRの反応を待っています(' + (stream ? '待機中' : 'カメラ停止中') + ')';
+  renderStatus();
+}
+const _rst = renderStatus;
+renderStatus = function () {
+  _rst();
+  if (cfg.pir && looping && !pirActive()) $('sDet').textContent = '待機中(PIR待ち)';
+  $('sPir').textContent = !cfg.pir ? '未使用' : pir.on ? '反応あり' : pirActive() ? '動作中' : '待機中';
+};
+$('pirOn').checked = cfg.pir; $('pirSec').value = cfg.pirSec; $('pirStop').checked = cfg.pirStop;
+$('pirOn').addEventListener('change', e => { cfg.pir = e.target.checked; if (cfg.pir) pir.last = Date.now(); else reopenCam(); saveCfg(); renderStatus(); });
+$('pirSec').addEventListener('change', e => { cfg.pirSec = Math.max(5, +e.target.value || 30); saveCfg(); });
+$('pirStop').addEventListener('change', e => { cfg.pirStop = e.target.checked; saveCfg(); });
+$('pirTest').addEventListener('click', () => pirEvent(true));
+
+if ('serviceWorker' in navigator && /^https?:/.test(location.protocol)) navigator.serviceWorker.register('sw.js').catch(() => {});
+let ip = null;
+addEventListener('beforeinstallprompt', e => { e.preventDefault(); ip = e; $('pwaBtn').hidden = false; });
+$('pwaBtn').addEventListener('click', () => { if (ip) { ip.prompt(); ip = null; $('pwaBtn').hidden = true; } });
+if (matchMedia('(display-mode: standalone)').matches || navigator.standalone) $('pwaHint').textContent = 'いまアプリとして起動しています。';
+
+/* ===== ライブ配信(WebRTC / PeerJS): 配信側 ===== */
+const conns = new Map(), calls = new Map(), waiting = new Set();
+let peer = null, lastMsg = '', retry = 0;
+cfg.live = cfg.live ?? false;
+const newLiveId = () => 'gaiju-' + Array.from(crypto.getRandomValues(new Uint8Array(10)), b => 'abcdefghjkmnpqrstuvwxyz23456789'[b % 31]).join('');
+cfg.liveId = cfg.liveId || newLiveId(); saveCfg();
+const liveUrl = () => location.href.split(/[?#]/)[0];
+function syncLiveBtn() {
+  const on = !!cfg.live, b = $('liveBtn');
+  b.textContent = on ? '■ ライブ配信を停止' : '▶ ライブ配信を開始';
+  b.classList.toggle('sub', on);
+  $('liveOn').checked = on;
+  $('liveHint').textContent = !on ? '' : (stream ? '' : 'カメラがまだ動いていません。ダッシュボードの「カメラを開始」を押すと映像が送られます。');
+}
+function renderLive() { syncLiveBtn(); $('liveWarn').hidden = location.protocol !== 'file:' || !!cfg.liveKey; $('liveCount').textContent = conns.size; $('liveLink').value = liveUrl(); $('liveWho').textContent = [...conns.values()].map(c => c._who).join('、'); }
+function callViewer(id) {
+  if (!stream) { waiting.add(id); return; }          // カメラが動いたら送る
+  waiting.delete(id);
+  const call = peer.call(id, stream); calls.set(id, call); call.on('close', () => calls.delete(id));
+}
+function liveRefresh() {   // カメラを切り替えたとき、見ている人の映像も切り替える
+  if (!peer || !stream) return;
+  const t = stream.getVideoTracks()[0];
+  calls.forEach(c => { try { const sd = c.peerConnection.getSenders().find(x => x.track && x.track.kind === 'video'); if (sd) sd.replaceTrack(t); } catch {} });
+  [...waiting].forEach(callViewer);
+}
+function liveSend() {      // 検知の状態を、見ている人にも知らせる
+  if (!conns.size) return;
+  const on = !!(looping && lastKeys.length && performance.now() - lastHit < HOLD_MS);
+  const text = on ? lastKeys.map(k => ANIMALS[k] ? ANIMALS[k].label : k).join('・') : '';
+  const m = JSON.stringify([on, text]); if (m === lastMsg) return; lastMsg = m;
+  conns.forEach(c => { if (c.open) c.send({ on, text }); });
+}
+function liveStart() {
+  if (peer) return;
+  if (!window.Peer) { $('liveState').textContent = 'ライブラリを読み込めません(ネット接続を確認)'; return; }
+  peer = new Peer(HOSTID, PEER_CFG);
+  peer.on('open', () => { retry = 0; $('liveState').textContent = '配信中'; syncLiveBtn(); });
+  peer.on('disconnected', () => { try { if (peer && !peer.destroyed) peer.reconnect(); } catch {} });   // 長時間つけっぱなしでも切れないように
+  peer.on('error', e => {
+    $('liveState').textContent = 'エラー: ' + e.type;
+    if (e.type === 'unavailable-id') {       // 前の接続が残っているとき: 少し待って同じリンクで再挑戦、だめなら新しいリンク
+      peer.destroy(); peer = null;
+      if (++retry > 20) { $('liveState').textContent = '配信用の名前が使用中です。しばらくしてから開き直してください'; return; }
+      setTimeout(() => { if (cfg.live) liveStart(); }, 3000);
+    }
+  });
+  peer.on('connection', c => {
+    c.on('data', m => { if (m && m.t === 'hello') hostAuth(c, m); });   // IDを確認できた人にだけ映像を送る
+    c.on('close', () => { conns.delete(c.peer); calls.delete(c.peer); waiting.delete(c.peer); renderLive(); });
+  });
+}
+const siteKey = cfg.liveKey ? 'k' + cfg.liveKey.replace(/[^a-z0-9]/gi, '') : (location.origin + location.pathname).replace(/index\.html$/, '').replace(/[^a-z0-9]/gi, '');   // 配信キーがあれば、アドレスの代わりにそれで相手を探す
+const hashStr = t => { let h = 5381; for (const ch of t) h = ((h << 5) + h + ch.charCodeAt(0)) | 0; return (h >>> 0).toString(36); };
+const HOSTID = 'gaiju-' + hashStr(siteKey) + hashStr(siteKey.split('').reverse().join(''));   // このアプリのアドレスから決まる配信用の名前
+async function hostAuth(c, m) {
+  const id = String(m.id || '').trim().toUpperCase(); let u = null;
+  try { u = await U.get(id); } catch {}
+  const ok = !!u && !u.off;
+  U.log({ id, name: u ? u.name || '' : '', t: Date.now(), ok: ok ? 1 : 0, r: u && u.role === 'admin' ? 'admin' : 'user', dv: String(m.dv || '').slice(0, 20) + '・リモート' }).catch(() => {});
+  if (ok) { u.last = Date.now(); u.count = (u.count || 0) + 1; U.set(id, u).catch(() => {}); }
+  c.send({ t: 'auth', ok, name: u ? u.name || '' : '', off: !!(u && u.off) });
+  if (ok) { c._who = (u.name || id); conns.set(c.peer, c); lastMsg = ''; callViewer(c.peer); renderLive(); liveSend(); }
+}
+function liveStop() { if (peer) { peer.destroy(); peer = null; } conns.clear(); calls.clear(); waiting.clear(); $('liveState').textContent = '停止中'; renderLive(); }
+const _rst2 = renderStatus; renderStatus = function () { _rst2(); liveSend(); };
+$('liveOn').checked = cfg.live;
+$('liveOn').addEventListener('change', e => { cfg.live = e.target.checked; saveCfg(); cfg.live ? liveStart() : liveStop(); syncLiveBtn(); });
+$('liveBtn').addEventListener('click', () => { cfg.live = !cfg.live; saveCfg(); cfg.live ? liveStart() : liveStop(); syncLiveBtn(); });
+$('liveCopy').addEventListener('click', async () => { try { await navigator.clipboard.writeText(liveUrl()); $('liveCopy').textContent = 'コピーしました'; } catch { $('liveLink').select(); } });
+$('liveLink').addEventListener('focus', e => e.target.select());
+renderLive();
+
+/* ===== ライブ配信: 視聴側(IDで入った人が、一般公開画面で映像を見る) ===== */
+let vp = null;
+function remoteAuth(id) {
+  return new Promise(resolve => {
+    if (!window.Peer) return resolve('unreachable');
+    let done = false; const fin = v => { if (!done) { done = true; clearTimeout(t); resolve(v); } };
+    if (vp) vp.destroy();
+    vp = new Peer(undefined, PEER_CFG); const mine = vp;
+    const t = setTimeout(() => fin('unreachable'), 10000);
+    vp.on('error', () => fin('unreachable'));
+    vp.on('call', call => { call.answer(); call.on('stream', showRemote); });
+    vp.on('open', () => {
+      const c = vp.connect(HOSTID, { reliable: true });
+      c.on('open', () => c.send({ t: 'hello', id, dv: device }));
+      c.on('data', m => { if (m.t === 'auth') fin(m.ok ? m : (m.off ? 'denied:off' : 'denied:no')); else if (m.on !== undefined) remoteStatus(m); });
+      c.on('close', () => {
+        if (vp !== mine || !(me && me.remote)) return;
+        $('seen').textContent = '配信がとぎれました。つなぎ直しています…'; $('rv2').srcObject = null; $('live').hidden = true;
+        const again = async () => {   // 配信端末が戻るまで、5秒ごとに自動でつなぎ直す
+          if (vp !== mine || !(me && me.remote)) return;
+          const r = await remoteAuth(id);
+          if (r && r.ok) { $('live').hidden = false; $('seen').textContent = 'ライブ映像を待っています…'; }
+          else if (vp === null || (me && me.remote)) setTimeout(again, 5000);
+        };
+        setTimeout(again, 5000);
+      });
+    });
+  });
+}
+function enterRemote(id, r, keep) {
+  $('gErr').textContent = '';
+  enter(id, { name: r.name, role: 'user' }, keep); me.remote = true;
+  document.body.dataset.remote = '1';
+  $('startBox').hidden = true; video.hidden = true; $('rv2').hidden = false; $('live').hidden = false;
+  $('seen').textContent = 'ライブ映像を待っています…';
+}
+function showRemote(st) { $('rv2').srcObject = st; $('rv2').play().catch(() => {}); $('seen').textContent = 'ライブ映像を見ています'; }
+function remoteStatus(m) {
+  $('alert').classList.toggle('on', !!m.on); $('msg').classList.toggle('on', !!m.on); $('seen').classList.toggle('alerting', !!m.on);
+  if (m.on) $('msg').textContent = m.text + 'を検知!';
+  $('seen').textContent = m.on ? m.text + 'を検知しています' : 'ライブ映像を見ています(動物は見つかっていません)';
+}
+/* (旧)リンクで開く視聴モード */
+function startViewer(id) {
+  const rv = $('rv'), st = $('rvStatus'); st.textContent = '接続中…';
+  if (!window.Peer) { st.textContent = '読み込みに失敗しました'; return; }
+  const p = new Peer();
+  p.on('open', () => {
+    const c = p.connect(id, { reliable: true });
+    c.on('open', () => { st.textContent = '映像を待っています…'; });
+    c.on('data', m => { $('rvAlert').classList.toggle('on', !!m.on); $('rvMsg').textContent = m.on ? m.text + 'を検知!' : ''; });
+    c.on('close', () => { st.textContent = '配信が終わりました'; rv.srcObject = null; });
+    setTimeout(() => { if (!rv.srcObject) st.textContent = '映像が届きません(配信中か、カメラが動いているか確認してください)'; }, 20000);
+  });
+  p.on('call', call => { call.answer(); call.on('stream', s => { rv.srcObject = s; rv.play().catch(() => {}); st.textContent = 'LIVE'; }); });
+  p.on('error', e => { st.textContent = e.type === 'peer-unavailable' ? '配信が見つかりません(配信中か確認してください)' : '接続できません(' + e.type + ')'; });
+}
+if (cfg.live) liveStart();
+
+
+/* ===== v4: GAS(Googleスプレッドシート)でログイン + オンライン一覧(URLがあるときだけ動く) ===== */
+$('fbCfg').value = cfg.gasUrl || '';
+$('fbSave').addEventListener('click', () => {
+  const v = $('fbCfg').value.trim();
+  if (v && !/^https:\/\/script\.google\.com\/macros\/s\/[\w-]+\/exec$/.test(v)) { $('fbErr').textContent = 'URLの形がちがいます(…/exec で終わるウェブアプリのURL)'; return; }
+  cfg.gasUrl = v; saveCfg(); location.reload();
+});
+$('gSetup').addEventListener('click', () => {   // ログイン画面から管理者パスワードなしでURLを設定する(URLは端末にだけ保存)
+  const v = prompt('GASのウェブアプリURL(…/exec)を貼ってください。\n空のまま決定すると、従来の方式に戻ります。', cfg.gasUrl || '');
+  if (v === null) return;
+  const u = v.trim();
+  if (u && !/^https:\/\/script\.google\.com\/macros\/s\/[\w-]+\/exec$/.test(u)) { alert('URLの形がちがいます。…/exec で終わるウェブアプリのURLを貼ってください。'); return; }
+  const k = prompt('配信キー(ファイルで開いた端末から配信するときだけ。配信する端末と同じ文字を入れてください。使わないなら空のまま)', cfg.liveKey || '');
+  if (k === null) return;
+  const kk = k.trim();
+  if (kk && !/^[A-Za-z0-9_-]{8,40}$/.test(kk)) { alert('配信キーは8〜40文字の英数字(- _ も可)にしてください。'); return; }
+  cfg.gasUrl = u; cfg.liveKey = kk; saveCfg(); location.reload();
+});
+$('liveKey').value = cfg.liveKey || '';
+$('liveKeySave').addEventListener('click', () => {
+  const kk = $('liveKey').value.trim();
+  if (kk && !/^[A-Za-z0-9_-]{8,40}$/.test(kk)) { alert('配信キーは8〜40文字の英数字(- _ も可)にしてください。'); return; }
+  cfg.liveKey = kk; saveCfg(); alert('保存しました。ページを再読み込みします。'); location.reload();
+});
+if (FB.on) {
+  const TKEY = 'gaijuTok';
+  let tok = null, hb = null, op = null, pseq = 0;
+  async function gas(action, data) {
+    const ctl = new AbortController(), to = setTimeout(() => ctl.abort(), 15000);   // 通信のタイムアウト
+    try {
+      const r = await fetch(cfg.gasUrl, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(Object.assign({ action }, data)), signal: ctl.signal });
+      let j; try { j = await r.json(); } catch { const e = new Error('badresp'); e.code = 'badresp'; throw e; }   // GASが権限エラーのHTMLを返した場合など
+      if (!j.ok) { const e = new Error(j.err || 'error'); e.code = j.err || 'server'; e.detail = j.detail || ''; throw e; }
+      return j;
+    } finally { clearTimeout(to); }
+  }
+  const gMsg = e => ({ bad: 'IDまたはパスワードがちがいます', off: 'このIDは停止されています', locked: '失敗が続いたため、1分ほど待ってください', weak: 'パスワードは6〜100文字にしてください',
+    session: 'ログインの有効期限が切れました。もう一度入ってください', busy: '混み合っています。少し待ってからやり直してください', forbidden: '権限がありません', badresp: 'GASから正しい返事が来ません。Code.gs の setup を1回実行して権限を承認し、デプロイを「新バージョン」にしてください' }[e.code] || (e.name === 'AbortError' || e instanceof TypeError ? '通信できません(URLとアクセス権「全員」を確認)' : 'エラーが起きました(' + (e.code || '') + (e.detail ? ':' + e.detail : '') + ')'));
+  const tk = () => { if (!tok) { const e = new Error('session'); e.code = 'session'; throw e; } return { token: tok }; };
+  Object.assign(U, {   // 既存の利用者タブ・アクセス記録をGASにつなぐ
+    async all() { const j = await gas('users', tk()), o = {}; j.list.forEach(u => { o[u.id] = u; }); return o; },
+    async get(id) { return (await U.all())[id] || null; },
+    async set(id, v) { await gas('setuser', Object.assign(tk(), { id, role: v.role, off: v.off ? 1 : 0, name: v.name || '' })); },
+    async del(id) { await gas('deluser', Object.assign(tk(), { id })); },
+    async log() {},   // アクセス記録はサーバーが書く
+    async logs(n) { return (await gas('logs', Object.assign(tk(), { n }))).list; },
+    async clearLogs() { await gas('clearlogs', tk()); }
+  });
+  $('uAdd').addEventListener('click', e => { e.stopImmediatePropagation(); $('uErr').textContent = 'GASモードでは、利用者がログイン画面の「新規登録」で自分のIDを発行します'; }, true);
+  $('gPw').hidden = false; $('gReg').hidden = false;
+  $('gPw').addEventListener('keydown', e => { if (e.key === 'Enter') $('gGo').click(); });
+
+  function clearTok() { try { localStorage.removeItem(TKEY); sessionStorage.removeItem(TKEY); } catch {} }
+  function startSession(j, keep) {
+    tok = j.token; clearTok(); try { (keep ? localStorage : sessionStorage).setItem(TKEY, tok); } catch {}
+    $('gPw').value = ''; $('gErr').textContent = ''; enter(j.id, j, false); me.fb = true; sessStart();
+    if (j.role !== 'admin' && !cfg.live) remoteAuth(j.id).then(r => { if (r && r.ok && me && me.fb && tok === j.token) { enterRemote(j.id, r, false); me.fb = true; } });
+  }
+  async function fbLogin(raw, keep) {
+    const id = raw.trim().toUpperCase(), pw = $('gPw').value;
+    if (!/^[A-Z0-9_-]{3,20}$/.test(id) || pw.length < 6) { $('gErr').textContent = 'IDと、6文字以上のパスワードを入れてください'; return false; }
+    if (FB.busy) return false;   // 連続クリックの二重実行を防ぐ
+    FB.busy = true; $('gGo').disabled = $('gReg').disabled = true; $('gErr').textContent = '確認中…';
+    try { startSession(await gas('login', { id, pw, dv: device }), keep); return true; }
+    catch (e) { $('gErr').textContent = gMsg(e); return false; }
+    finally { FB.busy = false; $('gGo').disabled = $('gReg').disabled = false; }
+  }
+  globalThis.fbLogin = fbLogin;   // asyncの関数宣言はブロックの外から見えないので、明示的に公開する
+  $('gReg').addEventListener('click', async () => {
+    const pw = $('gPw').value; if (FB.busy) return;
+    if (pw.length < 6) { $('gErr').textContent = 'パスワードを6文字以上で入れてください(IDは自動で発行されます)'; return; }
+    const name = (prompt('名前・メモ(空でもOK)') || '').trim().slice(0, 30);
+    FB.busy = true; $('gGo').disabled = $('gReg').disabled = true; $('gErr').textContent = '登録中…';
+    try { const j = await gas('register', { pw, name, dv: device }); startSession(j, true); alert('あなたのIDは ' + j.id + ' です。控えてください(別の端末でもこのIDとパスワードで入れます)'); }
+    catch (e) { $('gErr').textContent = gMsg(e); }
+    finally { FB.busy = false; $('gGo').disabled = $('gReg').disabled = false; }
+  });
+
+  function forceOut(code) { if (me && me.fb) { $('gOut').click(); $('gErr').textContent = gMsg({ code }); } }
+  function sessStop() { clearInterval(hb); clearInterval(op); hb = op = null; pseq++; FB.pv = null; }
+  function sessStart() {
+    sessStop(); FB.net = true;
+    hb = setInterval(async () => {   // ハートビート(25秒ごと)
+      const t = tok; if (!t) return;
+      try { await gas('beat', { token: t }); if (t === tok) FB.net = true; }
+      catch (e) { if (t !== tok) return; if (e.code === 'session' || e.code === 'off') return forceOut(e.code); FB.net = false; }
+      renderOnline();
+    }, 25000);
+    if (me.role === 'admin') { poll(); op = setInterval(poll, 10000); }
+  }
+  async function poll() {
+    const s = ++pseq, t = tok; if (!t) return;
+    try { const j = await gas('online', { token: t }); if (s !== pseq || t !== tok) return; FB.pv = j.list; FB.net = true; }   // 古い応答で新しい表示を上書きしない
+    catch (e) { if (s !== pseq || t !== tok) return; if (e.code === 'session' || e.code === 'off') return forceOut(e.code); FB.net = false; }
+    renderOnline();
+  }
+  function renderOnline() {
+    const el = $('onList'); if (!el || !me || me.role !== 'admin') return;
+    if (FB.pv == null) { el.textContent = FB.net ? '読み込み中…' : '読み込めません(通信を確認中)'; return; }
+    el.innerHTML = (FB.net ? '' : '<div class="warn">通信状態を確認中です。この一覧は古い可能性があります</div>') +
+      (FB.pv.map(v => '<div class="li"><span class="dot on"></span><b>' + esc(v.id) + '</b><span class="muted">' + esc(v.name) + ' ' + esc(v.dv || '') + '・最終 ' + v.ago + '秒前</span></div>').join('') || '<span class="muted">オンラインの人はいません</span>');
+  }
+  $('gOut').addEventListener('click', () => { const t = tok; tok = null; sessStop(); clearTok(); if (t) gas('logout', { token: t }).catch(() => {}); });
+  setTimeout(async () => {   // 再読み込み後のログイン状態の復元
+    let t = null, keep = false; try { t = localStorage.getItem(TKEY); keep = !!t; t = t || sessionStorage.getItem(TKEY); } catch {}
+    if (!t) return;
+    try { startSession(await gas('resume', { token: t }), keep); }
+    catch (e) { if (e.code === 'session' || e.code === 'off') { clearTok(); if (e.code === 'off') $('gErr').textContent = gMsg(e); } else $('gErr').textContent = '通信できません。再読み込みしてください'; }
+  }, 0);
+}
+
+applyLook(); renderLog();
+</script>
+</body>
+</html>
